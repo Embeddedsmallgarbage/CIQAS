@@ -304,6 +304,77 @@ def get_categories():
     return jsonify(DocumentCategory.get_all_categories())
 
 
+@app.route('/api/kb/custom-categories', methods=['GET'])
+@admin_required
+def get_custom_categories():
+    """获取自定义文档分类列表（仅管理员）"""
+    from build_db import DocumentCategory
+    return jsonify(DocumentCategory.get_custom_categories())
+
+
+@app.route('/api/kb/custom-categories', methods=['POST'])
+@admin_required
+def create_custom_category():
+    """创建自定义文档分类（仅管理员）"""
+    from build_db import DocumentCategory
+
+    data = request.json
+    name = data.get('name', '').strip()
+
+    if not name:
+        return jsonify({'error': '分类名称不能为空'}), 400
+
+    try:
+        category_id = DocumentCategory.add_custom_category(name)
+        logger.info(f"创建自定义分类: {category_id} - {name}")
+        return jsonify({
+            'success': True,
+            'message': f'分类 "{name}" 创建成功',
+            'category': {
+                'id': category_id,
+                'name': name
+            }
+        })
+    except ValueError as e:
+        logger.warning(f"创建分类失败: {e}")
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"创建分类失败: {e}")
+        return jsonify({'error': f'创建分类失败: {str(e)}'}), 500
+
+
+@app.route('/api/kb/custom-categories/<category_id>', methods=['DELETE'])
+@admin_required
+def delete_custom_category(category_id):
+    """删除自定义文档分类（仅管理员）
+
+    只能删除自定义分类，不能删除预设分类
+    """
+    from build_db import DocumentCategory
+
+    try:
+        # 检查是否是预设分类
+        preset_ids = ['regulations', 'procedures', 'campus_life', 'teaching', 'other']
+        if category_id in preset_ids:
+            return jsonify({'error': '不能删除预设分类'}), 400
+
+        # 删除分类
+        success = DocumentCategory.delete_custom_category(category_id)
+
+        if success:
+            logger.info(f"删除自定义分类: {category_id}")
+            return jsonify({
+                'success': True,
+                'message': '分类已删除'
+            })
+        else:
+            return jsonify({'error': '分类不存在'}), 404
+
+    except Exception as e:
+        logger.error(f"删除分类失败: {e}")
+        return jsonify({'error': f'删除分类失败: {str(e)}'}), 500
+
+
 @app.route('/api/kb/documents', methods=['GET'])
 @admin_required
 def get_documents_by_category():

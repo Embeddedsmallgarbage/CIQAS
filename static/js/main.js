@@ -91,13 +91,12 @@ function renderStudentTree(categories) {
 
     treeContainer.innerHTML = '';
 
-    // 更新添加学生表单中的分类下拉框
     const categorySelect = document.getElementById('studentCategorySelect');
     if (categorySelect) {
         categorySelect.innerHTML = '<option value="">-- 选择分类 --</option>';
         categories.forEach(category => {
             const option = document.createElement('option');
-            option.value = category.id;
+            option.value = category.category_id;
             option.textContent = category.name;
             categorySelect.appendChild(option);
         });
@@ -108,51 +107,123 @@ function renderStudentTree(categories) {
         return;
     }
 
+    const defaultCategoryId = 'cat_default';
+
     categories.forEach(category => {
         const folder = document.createElement('div');
         folder.className = 'folder-item';
 
-        const isSelected = selectedCategoryId === category.id;
+        const isSelected = selectedCategoryId === category.category_id;
+        const catId = category.category_id;
+        const isDefaultCategory = catId === defaultCategoryId;
 
-        folder.innerHTML = `
-            <div class="folder-header ${isSelected ? 'selected' : ''}" onclick="selectCategory(${category.id})">
-                <div class="folder-icon" id="categoryIcon-${category.id}" onclick="event.stopPropagation(); toggleStudentFolder(${category.id})">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="9 18 15 12 9 6"/>
-                    </svg>
-                </div>
-                <div class="folder-category-icon">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                        <circle cx="12" cy="7" r="4"/>
-                    </svg>
-                </div>
-                <span class="folder-name">${category.name}</span>
-                <span class="folder-count">${category.student_count || 0}</span>
-                <button class="btn-remove-doc" onclick="event.stopPropagation(); deleteCategory(${category.id})" aria-label="删除分类">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"/>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
-                </button>
+        const folderHeader = document.createElement('div');
+        folderHeader.className = `folder-header ${isSelected ? 'selected' : ''}`;
+        
+        folderHeader.innerHTML = `
+            <div class="folder-icon" id="categoryIcon-${catId}">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 18 15 12 9 6"/>
+                </svg>
             </div>
-            <div class="folder-content" id="categoryContent-${category.id}">
-                ${category.description ? `<div class="folder-description">${category.description}</div>` : ''}
+            <div class="folder-category-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
             </div>
+            <span class="folder-name">${category.name}</span>
+            <span class="folder-count">${category.student_count || 0}</span>
         `;
 
+        folderHeader.addEventListener('click', function(e) {
+            if (e.target.closest('.folder-icon')) {
+                toggleStudentFolder(catId);
+            } else {
+                selectCategory(catId);
+            }
+        });
+
+        if (!isDefaultCategory) {
+            folderHeader.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                showStudentCategoryContextMenu(e, catId);
+            });
+        }
+
+        const folderContent = document.createElement('div');
+        folderContent.className = 'folder-content';
+        folderContent.id = `categoryContent-${catId}`;
+        
+        if (category.description) {
+            folderContent.innerHTML = `<div class="folder-description">${category.description}</div>`;
+        }
+
+        folder.appendChild(folderHeader);
+        folder.appendChild(folderContent);
         treeContainer.appendChild(folder);
     });
 }
 
-function toggleStudentFolder(categoryId) {
+async function toggleStudentFolder(categoryId) {
     const content = document.getElementById(`categoryContent-${categoryId}`);
     const icon = document.getElementById(`categoryIcon-${categoryId}`);
 
     if (content && icon) {
+        const isExpanded = content.classList.contains('expanded');
+
+        if (!isExpanded) {
+            await loadCategoryStudents(categoryId);
+        }
+
         content.classList.toggle('expanded');
         icon.classList.toggle('expanded');
     }
+}
+
+async function loadCategoryStudents(categoryId) {
+    try {
+        const response = await fetch(`/api/students?category_id=${categoryId}`);
+        if (!response.ok) throw new Error('加载学生列表失败');
+
+        const students = await response.json();
+        renderCategoryStudents(categoryId, students);
+    } catch (error) {
+        console.error('加载分类学生失败:', error);
+    }
+}
+
+function renderCategoryStudents(categoryId, students) {
+    const content = document.getElementById(`categoryContent-${categoryId}`);
+    if (!content) return;
+
+    let studentsHtml = '';
+
+    if (students.length === 0) {
+        studentsHtml = '<div class="folder-empty">该分类下暂无学生</div>';
+    } else {
+        studentsHtml = `
+            <div class="category-students-list">
+                ${students.map(student => `
+                    <div class="category-student-item">
+                        <div class="category-student-icon">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                                <circle cx="12" cy="7" r="4"/>
+                            </svg>
+                        </div>
+                        <div class="category-student-info">
+                            <span class="category-student-name">${student.name}</span>
+                            <span class="category-student-id">${student.username}</span>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    content.innerHTML = studentsHtml;
 }
 
 function showAddCategoryForm() {
@@ -205,7 +276,7 @@ async function addCategory() {
 }
 
 async function deleteCategory(categoryId) {
-    const category = studentCategories.find(c => c.id === categoryId);
+    const category = studentCategories.find(c => c.category_id === categoryId);
     const categoryName = category ? category.name : '该分类';
 
     if (!confirm(`确定要删除分类 "${categoryName}" 吗？该分类下的学生将被移出此分类。`)) {
@@ -232,6 +303,94 @@ async function deleteCategory(categoryId) {
         console.error('删除分类失败:', error);
         alert('删除失败，请重试');
     }
+}
+
+let currentStudentCategoryContextMenuId = null;
+
+function showStudentCategoryContextMenu(event, categoryId) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    currentStudentCategoryContextMenuId = categoryId;
+
+    const contextMenu = document.getElementById('studentCategoryContextMenu');
+    if (!contextMenu) {
+        return;
+    }
+
+    contextMenu.style.display = 'block';
+
+    let x, y;
+    if (event) {
+        x = event.clientX;
+        y = event.clientY;
+    } else {
+        x = window.innerWidth / 2;
+        y = window.innerHeight / 2;
+    }
+
+    const menuWidth = 150;
+    const menuHeight = 50;
+    
+    if (x + menuWidth > window.innerWidth) {
+        x = window.innerWidth - menuWidth - 10;
+    }
+    if (y + menuHeight > window.innerHeight) {
+        y = window.innerHeight - menuHeight - 10;
+    }
+
+    contextMenu.style.left = x + 'px';
+    contextMenu.style.top = y + 'px';
+    contextMenu.style.zIndex = '10000';
+
+    setTimeout(() => {
+        document.addEventListener('click', hideStudentCategoryContextMenu, { once: true });
+    }, 0);
+}
+
+function hideStudentCategoryContextMenu() {
+    const contextMenu = document.getElementById('studentCategoryContextMenu');
+    if (contextMenu) {
+        contextMenu.style.display = 'none';
+    }
+    currentStudentCategoryContextMenuId = null;
+}
+
+window.deleteStudentCategory = async function() {
+    if (!currentStudentCategoryContextMenuId) return;
+
+    const category = studentCategories.find(c => c.category_id === currentStudentCategoryContextMenuId);
+    const categoryName = category ? category.name : '该分类';
+
+    if (!confirm(`确定要删除分类 "${categoryName}" 吗？该分类下的学生将被移出此分类。`)) {
+        hideStudentCategoryContextMenu();
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/student-categories/${currentStudentCategoryContextMenuId}`, {
+            method: 'DELETE'
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            if (selectedCategoryId === currentStudentCategoryContextMenuId) {
+                selectedCategoryId = null;
+            }
+            await loadStudentCategories();
+            await loadStudentList();
+        } else {
+            alert('删除失败: ' + (data.error || '未知错误'));
+        }
+    } catch (error) {
+        console.error('删除分类失败:', error);
+        alert('删除失败，请重试');
+    }
+
+    hideStudentCategoryContextMenu();
 }
 
 function selectCategory(categoryId) {
@@ -354,7 +513,7 @@ async function addStudent() {
     try {
         const body = { username, name, password };
         if (categoryId && categoryId !== '') {
-            body.category_id = parseInt(categoryId);
+            body.category_id = categoryId;
         }
 
         const response = await fetch('/api/students', {
@@ -871,12 +1030,18 @@ async function loadDocumentTree() {
     }
 }
 
+let currentContextMenuCategoryId = null;
+
+const presetCategories = ['regulations', 'procedures', 'campus_life', 'teaching', 'other'];
+
 function renderDocumentTree(categories) {
     const documentTree = document.getElementById('documentTree');
-    if (!documentTree) return;
-    
+    if (!documentTree) {
+        return;
+    }
+
     documentTree.innerHTML = '';
-    
+
     const categoryIcons = {
         'regulations': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
         'procedures': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15l2 2 4-4"/></svg>',
@@ -884,37 +1049,56 @@ function renderDocumentTree(categories) {
         'teaching': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>',
         'other': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>'
     };
-    
+
     let hasDocuments = false;
-    
+
     Object.entries(categories).forEach(([catId, catData]) => {
         if (catData.count > 0) {
             hasDocuments = true;
         }
-        
+
         const folder = document.createElement('div');
         folder.className = 'folder-item';
+
+        const isCustomCategory = !presetCategories.includes(catId);
+
+        const folderHeader = document.createElement('div');
+        folderHeader.className = 'folder-header';
+        folderHeader.dataset.categoryId = catId;
+        folderHeader.dataset.custom = isCustomCategory;
         
-        folder.innerHTML = `
-            <div class="folder-header" onclick="toggleFolder('${catId}')">
-                <div class="folder-icon" id="folderIcon-${catId}">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="9 18 15 12 9 6"/>
-                    </svg>
-                </div>
-                <div class="folder-category-icon">${categoryIcons[catId] || categoryIcons['other']}</div>
-                <span class="folder-name">${catData.name}</span>
-                <span class="folder-count">${catData.count}</span>
+        folderHeader.innerHTML = `
+            <div class="folder-icon" id="folderIcon-${catId}">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 18 15 12 9 6"/>
+                </svg>
             </div>
-            <div class="folder-content" id="folderContent-${catId}">
-                ${catData.documents.length === 0 ? '<div class="folder-empty">暂无文档</div>' : ''}
-            </div>
+            <div class="folder-category-icon">${categoryIcons[catId] || categoryIcons['other']}</div>
+            <span class="folder-name">${catData.name}</span>
+            <span class="folder-count">${catData.count}</span>
         `;
+
+        folderHeader.addEventListener('click', function() {
+            toggleFolder(catId);
+        });
+
+        if (isCustomCategory) {
+            folderHeader.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                showCategoryContextMenu(e, catId);
+            });
+        }
+
+        const folderContent = document.createElement('div');
+        folderContent.className = 'folder-content';
+        folderContent.id = `folderContent-${catId}`;
         
-        documentTree.appendChild(folder);
-        
+        if (catData.documents.length === 0) {
+            folderContent.innerHTML = '<div class="folder-empty">暂无文档</div>';
+        }
+
         if (catData.documents.length > 0) {
-            const content = folder.querySelector('.folder-content');
             catData.documents.forEach(doc => {
                 const docItem = document.createElement('div');
                 docItem.className = 'doc-item';
@@ -934,23 +1118,181 @@ function renderDocumentTree(categories) {
                         </svg>
                     </button>
                 `;
-                content.appendChild(docItem);
+                folderContent.appendChild(docItem);
             });
         }
+
+        folder.appendChild(folderHeader);
+        folder.appendChild(folderContent);
+        documentTree.appendChild(folder);
     });
-    
+
     if (!hasDocuments) {
         documentTree.innerHTML = '<div class="empty-state"><span>暂无文档，请上传</span></div>';
     }
 }
 
+window.showCategoryContextMenu = function(event, categoryId) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    currentContextMenuCategoryId = categoryId;
+
+    const contextMenu = document.getElementById('categoryContextMenu');
+    if (!contextMenu) {
+        return;
+    }
+
+    contextMenu.style.display = 'block';
+
+    let x, y;
+    if (event) {
+        x = event.clientX;
+        y = event.clientY;
+    } else {
+        x = window.innerWidth / 2;
+        y = window.innerHeight / 2;
+    }
+
+    const menuWidth = 150;
+    const menuHeight = 50;
+    
+    if (x + menuWidth > window.innerWidth) {
+        x = window.innerWidth - menuWidth - 10;
+    }
+    if (y + menuHeight > window.innerHeight) {
+        y = window.innerHeight - menuHeight - 10;
+    }
+
+    contextMenu.style.left = x + 'px';
+    contextMenu.style.top = y + 'px';
+    contextMenu.style.zIndex = '10000';
+
+    setTimeout(() => {
+        document.addEventListener('click', hideCategoryContextMenu, { once: true });
+    }, 0);
+}
+
+function showCategoryContextMenu(event, categoryId) {
+    window.showCategoryContextMenu(event, categoryId);
+}
+
+function hideCategoryContextMenu() {
+    const contextMenu = document.getElementById('categoryContextMenu');
+    if (contextMenu) {
+        contextMenu.style.display = 'none';
+    }
+    currentContextMenuCategoryId = null;
+}
+
+window.deleteCustomCategory = async function() {
+    if (!currentContextMenuCategoryId) return;
+
+    if (!confirm('确定要删除此分类吗？该分类下的文档将被移动到"其他"分类。')) {
+        hideCategoryContextMenu();
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/kb/custom-categories/${currentContextMenuCategoryId}`, {
+            method: 'DELETE'
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            await loadDocumentTree();
+            await loadCategorySelect();
+            alert('分类已删除');
+        } else {
+            alert('删除失败: ' + (data.error || '未知错误'));
+        }
+    } catch (error) {
+        console.error('删除分类失败:', error);
+        alert('删除失败，请重试');
+    }
+
+    hideCategoryContextMenu();
+}
+
 function toggleFolder(catId) {
     const content = document.getElementById(`folderContent-${catId}`);
     const icon = document.getElementById(`folderIcon-${catId}`);
-    
+
     if (content && icon) {
         content.classList.toggle('expanded');
         icon.classList.toggle('expanded');
+    }
+}
+
+function showAddDocCategoryForm() {
+    const form = document.getElementById('addDocCategoryForm');
+    if (form) {
+        form.style.display = 'block';
+        document.getElementById('docCategoryName').focus();
+    }
+}
+
+function hideAddDocCategoryForm() {
+    const form = document.getElementById('addDocCategoryForm');
+    if (form) {
+        form.style.display = 'none';
+        document.getElementById('docCategoryName').value = '';
+    }
+}
+
+async function addDocCategory() {
+    const name = document.getElementById('docCategoryName').value.trim();
+
+    if (!name) {
+        alert('请输入分类名称');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/kb/custom-categories', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            hideAddDocCategoryForm();
+            await loadDocumentTree();
+            await loadCategorySelect();
+            alert('分类创建成功');
+        } else {
+            alert('创建失败: ' + (data.error || '未知错误'));
+        }
+    } catch (error) {
+        console.error('创建分类失败:', error);
+        alert('创建失败，请重试');
+    }
+}
+
+async function loadCategorySelect() {
+    try {
+        const response = await fetch('/api/kb/categories');
+        const categories = await response.json();
+
+        const categorySelect = document.getElementById('categorySelect');
+        if (categorySelect) {
+            categorySelect.innerHTML = '';
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat.id;
+                option.textContent = cat.name;
+                categorySelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('加载分类列表失败:', error);
     }
 }
 
@@ -1166,13 +1508,13 @@ async function deleteConversation(convId) {
 // 模型参数设置相关函数
 const MODEL_PARAM_RANGES = {
     temperature: { min: 0, max: 2, default: 0.7 },
-    max_tokens: { min: 1, max: 8192, default: 2048 },
+    max_tokens: { min: 100, max: 8192, default: 4096 },
     top_p: { min: 0, max: 1, default: 0.9 },
     frequency_penalty: { min: -2, max: 2, default: 0 },
     presence_penalty: { min: -2, max: 2, default: 0 },
-    chunk_size: { min: 100, max: 4000, default: 1000 },
-    chunk_overlap: { min: 0, max: 1000, default: 200 },
-    retrieval_k: { min: 1, max: 20, default: 5 }
+    chunk_size: { min: 100, max: 2000, default: 500 },
+    chunk_overlap: { min: 0, max: 500, default: 50 },
+    retrieval_k: { min: 1, max: 10, default: 3 }
 };
 
 let currentModelSettings = {};
@@ -1198,13 +1540,10 @@ function renderModelSettings(settings) {
     const llmParams = ['temperature', 'max_tokens', 'top_p', 'frequency_penalty', 'presence_penalty'];
     const embeddingParams = ['chunk_size', 'chunk_overlap', 'retrieval_k'];
     
-    // 将数组格式转换为对象格式
-    // 后端返回格式: [{setting_key: 'temperature', value: 0.7, ...}, ...]
     let settingsObj = settings;
     if (Array.isArray(settings)) {
         settingsObj = {};
         settings.forEach(item => {
-            // 使用 setting_key 作为键，value 作为值
             const key = item.setting_key || item.key;
             const value = item.value !== undefined ? item.value : item.setting_value;
             if (key) {
@@ -1213,18 +1552,41 @@ function renderModelSettings(settings) {
         });
     }
     
+    const paramMapping = {
+        'temperature': 'llm_temperature',
+        'max_tokens': 'llm_max_tokens',
+        'top_p': 'llm_top_p',
+        'frequency_penalty': 'llm_frequency_penalty',
+        'presence_penalty': 'llm_presence_penalty',
+        'chunk_size': 'embedding_chunk_size',
+        'chunk_overlap': 'embedding_chunk_overlap',
+        'retrieval_k': 'embedding_retrieval_k'
+    };
+    
     llmParams.forEach(param => {
         const input = document.getElementById(`param-${param}`);
-        if (input && settingsObj[param] !== undefined) {
-            input.value = settingsObj[param];
+        if (input) {
+            const backendKey = paramMapping[param];
+            const value = settingsObj[backendKey];
+            if (value !== undefined) {
+                input.value = value;
+            } else {
+                input.value = MODEL_PARAM_RANGES[param].default;
+            }
             input.classList.remove('error');
         }
     });
     
     embeddingParams.forEach(param => {
         const input = document.getElementById(`param-${param}`);
-        if (input && settingsObj[param] !== undefined) {
-            input.value = settingsObj[param];
+        if (input) {
+            const backendKey = paramMapping[param];
+            const value = settingsObj[backendKey];
+            if (value !== undefined) {
+                input.value = value;
+            } else {
+                input.value = MODEL_PARAM_RANGES[param].default;
+            }
             input.classList.remove('error');
         }
     });
@@ -1282,8 +1644,20 @@ function setupModelParamValidation() {
 }
 
 async function saveModelSettings() {
-    const settings = {};
     const paramIds = ['temperature', 'max_tokens', 'top_p', 'frequency_penalty', 'presence_penalty', 'chunk_size', 'chunk_overlap', 'retrieval_k'];
+    
+    const paramMapping = {
+        'temperature': 'llm_temperature',
+        'max_tokens': 'llm_max_tokens',
+        'top_p': 'llm_top_p',
+        'frequency_penalty': 'llm_frequency_penalty',
+        'presence_penalty': 'llm_presence_penalty',
+        'chunk_size': 'embedding_chunk_size',
+        'chunk_overlap': 'embedding_chunk_overlap',
+        'retrieval_k': 'embedding_retrieval_k'
+    };
+    
+    const settings = {};
     
     for (const param of paramIds) {
         const input = document.getElementById(`param-${param}`);
@@ -1298,25 +1672,32 @@ async function saveModelSettings() {
             return;
         }
         
-        settings[param] = result.value;
+        const backendKey = paramMapping[param];
+        settings[backendKey] = result.value;
     }
     
     try {
-        const response = await fetch('/api/settings', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(settings)
-        });
+        let successCount = 0;
+        for (const [key, value] of Object.entries(settings)) {
+            const response = await fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ key, value })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                successCount++;
+            }
+        }
         
-        const data = await response.json();
-        
-        if (data.success) {
+        if (successCount === Object.keys(settings).length) {
             currentModelSettings = settings;
             showModelSettingsSuccess('设置已保存');
         } else {
-            showModelSettingsError('保存失败: ' + (data.error || '未知错误'));
+            showModelSettingsError('部分设置保存失败');
         }
     } catch (error) {
         console.error('保存模型设置失败:', error);
@@ -1329,25 +1710,26 @@ async function resetModelSettings() {
         return;
     }
     
-    const defaultSettings = {};
-    for (const [key, config] of Object.entries(MODEL_PARAM_RANGES)) {
-        defaultSettings[key] = config.default;
-    }
+    const paramMapping = {
+        'temperature': 'llm_temperature',
+        'max_tokens': 'llm_max_tokens',
+        'top_p': 'llm_top_p',
+        'frequency_penalty': 'llm_frequency_penalty',
+        'presence_penalty': 'llm_presence_penalty',
+        'chunk_size': 'embedding_chunk_size',
+        'chunk_overlap': 'embedding_chunk_overlap',
+        'retrieval_k': 'embedding_retrieval_k'
+    };
     
     try {
-        const response = await fetch('/api/settings', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(defaultSettings)
+        const response = await fetch('/api/settings/reset', {
+            method: 'POST'
         });
         
         const data = await response.json();
         
         if (data.success) {
-            currentModelSettings = defaultSettings;
-            renderModelSettings(defaultSettings);
+            await loadModelSettings();
             showModelSettingsSuccess('已恢复默认设置');
         } else {
             showModelSettingsError('恢复默认设置失败: ' + (data.error || '未知错误'));

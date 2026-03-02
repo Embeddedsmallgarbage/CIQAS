@@ -9,6 +9,7 @@
 import os
 import json
 import shutil
+from datetime import datetime
 from typing import List, Dict
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -26,7 +27,7 @@ class DocumentCategory:
     CAMPUS_LIFE = 'campus_life'
     TEACHING = 'teaching'
     OTHER = 'other'
-    
+
     CATEGORY_NAMES = {
         'regulations': '规章制度',
         'procedures': '办事流程',
@@ -34,7 +35,7 @@ class DocumentCategory:
         'teaching': '教学管理',
         'other': '其他'
     }
-    
+
     CATEGORY_DESCRIPTIONS = {
         'regulations': '校规校纪、管理制度等',
         'procedures': '各类办事指南',
@@ -42,17 +43,180 @@ class DocumentCategory:
         'teaching': '选课、考试、成绩等',
         'other': '未分类文档'
     }
-    
+
+    _custom_categories_file = None
+    _custom_categories = None
+
+    @classmethod
+    def _get_custom_categories_file(cls) -> str:
+        """获取自定义分类文件路径"""
+        if cls._custom_categories_file is None:
+            cls._custom_categories_file = os.path.join(
+                os.path.dirname(Config.VECTOR_DB_PATH),
+                'uploads',
+                'custom_categories.json'
+            )
+        return cls._custom_categories_file
+
+    @classmethod
+    def _load_custom_categories(cls) -> Dict:
+        """加载自定义分类"""
+        if cls._custom_categories is not None:
+            return cls._custom_categories
+
+        file_path = cls._get_custom_categories_file()
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    cls._custom_categories = json.load(f)
+            except Exception as e:
+                logger.error(f"加载自定义分类失败: {e}")
+                cls._custom_categories = {}
+        else:
+            cls._custom_categories = {}
+
+        return cls._custom_categories
+
+    @classmethod
+    def _save_custom_categories(cls, categories: Dict):
+        """保存自定义分类"""
+        file_path = cls._get_custom_categories_file()
+        try:
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(categories, f, ensure_ascii=False, indent=2)
+            cls._custom_categories = categories
+        except Exception as e:
+            logger.error(f"保存自定义分类失败: {e}")
+            raise
+
+    @classmethod
+    def add_custom_category(cls, name: str) -> str:
+        """
+        添加自定义分类
+
+        @param name 分类名称
+        @return 分类ID
+        @raises ValueError: 分类名称已存在
+        """
+        import uuid
+
+        categories = cls._load_custom_categories()
+
+        # 检查是否已存在（包括预设分类）
+        all_names = [cls.CATEGORY_NAMES.get(k, '') for k in cls.CATEGORY_NAMES]
+        all_names.extend([cat['name'] for cat in categories.values()])
+
+        if name in all_names:
+            raise ValueError(f'分类 "{name}" 已存在')
+
+        # 生成唯一ID
+        category_id = f"custom_{uuid.uuid4().hex[:8]}"
+
+        categories[category_id] = {
+            'id': category_id,
+            'name': name,
+            'description': '',
+            'created_at': datetime.now().isoformat()
+        }
+
+        cls._save_custom_categories(categories)
+        logger.info(f"创建自定义分类: {category_id} - {name}")
+
+        return category_id
+
+    @classmethod
+    def get_custom_categories(cls) -> List[Dict]:
+        """获取所有自定义分类"""
+        categories = cls._load_custom_categories()
+        return list(categories.values())
+
     @classmethod
     def get_all_categories(cls) -> List[Dict]:
-        """获取所有分类列表"""
-        return [
+        """获取所有分类列表（预设 + 自定义）"""
+        # 预设分类
+        preset_categories = [
             {'id': cls.REGULATIONS, 'name': cls.CATEGORY_NAMES[cls.REGULATIONS], 'description': cls.CATEGORY_DESCRIPTIONS[cls.REGULATIONS]},
             {'id': cls.PROCEDURES, 'name': cls.CATEGORY_NAMES[cls.PROCEDURES], 'description': cls.CATEGORY_DESCRIPTIONS[cls.PROCEDURES]},
             {'id': cls.CAMPUS_LIFE, 'name': cls.CATEGORY_NAMES[cls.CAMPUS_LIFE], 'description': cls.CATEGORY_DESCRIPTIONS[cls.CAMPUS_LIFE]},
             {'id': cls.TEACHING, 'name': cls.CATEGORY_NAMES[cls.TEACHING], 'description': cls.CATEGORY_DESCRIPTIONS[cls.TEACHING]},
             {'id': cls.OTHER, 'name': cls.CATEGORY_NAMES[cls.OTHER], 'description': cls.CATEGORY_DESCRIPTIONS[cls.OTHER]},
         ]
+
+        # 自定义分类
+        custom_categories = cls.get_custom_categories()
+
+        return preset_categories + custom_categories
+
+    @classmethod
+    def is_valid_category(cls, category_id: str) -> bool:
+        """检查分类ID是否有效"""
+        preset_ids = [cls.REGULATIONS, cls.PROCEDURES, cls.CAMPUS_LIFE, cls.TEACHING, cls.OTHER]
+        if category_id in preset_ids:
+            return True
+
+        custom_categories = cls._load_custom_categories()
+        return category_id in custom_categories
+
+    @classmethod
+    def delete_custom_category(cls, category_id: str) -> bool:
+        """
+        删除自定义分类
+
+        @param category_id 分类ID
+        @return 是否删除成功
+        @raises ValueError: 不能删除预设分类
+        """
+        # 检查是否是预设分类
+        preset_ids = [cls.REGULATIONS, cls.PROCEDURES, cls.CAMPUS_LIFE, cls.TEACHING, cls.OTHER]
+        if category_id in preset_ids:
+            raise ValueError('不能删除预设分类')
+
+        categories = cls._load_custom_categories()
+
+        if category_id not in categories:
+            return False
+
+        # 删除分类
+        del categories[category_id]
+        cls._save_custom_categories(categories)
+
+        # 将该分类下的文档移动到"其他"分类
+        cls._move_docs_to_other(category_id)
+
+        logger.info(f"删除自定义分类: {category_id}")
+        return True
+
+    @classmethod
+    def _move_docs_to_other(cls, category_id: str):
+        """将指定分类下的文档移动到"其他"分类"""
+        metadata_path = os.path.join(
+            os.path.dirname(Config.VECTOR_DB_PATH),
+            'uploads',
+            'document_metadata.json'
+        )
+
+        if not os.path.exists(metadata_path):
+            return
+
+        try:
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+
+            # 将所有该分类的文档改为"其他"分类
+            changed = False
+            for doc_name, doc_info in metadata.items():
+                if doc_info.get('category') == category_id:
+                    doc_info['category'] = cls.OTHER
+                    changed = True
+
+            if changed:
+                with open(metadata_path, 'w', encoding='utf-8') as f:
+                    json.dump(metadata, f, ensure_ascii=False, indent=2)
+                logger.info(f"已将分类 {category_id} 下的文档移动到'其他'分类")
+
+        except Exception as e:
+            logger.error(f"移动文档分类失败: {e}")
 
 
 class KnowledgeBaseBuilder:

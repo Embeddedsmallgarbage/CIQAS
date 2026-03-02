@@ -300,12 +300,34 @@
                             </div>
                             
                             <div class="admin-section">
-                                <h3>
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                                    </svg>
-                                    文档管理
-                                </h3>
+                                <div class="section-header-row">
+                                    <h3>
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                        </svg>
+                                        文档管理
+                                    </h3>
+                                    <button class="btn-add-student" onclick="showAddDocCategoryForm()" type="button">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                            <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                        </svg>
+                                        <span>新增分类</span>
+                                    </button>
+                                </div>
+
+                                <div id="addDocCategoryForm" class="add-student-form" style="display: none;">
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="docCategoryName">分类名称</label>
+                                            <input type="text" id="docCategoryName" placeholder="请输入分类名称" required>
+                                        </div>
+                                    </div>
+                                    <div class="form-actions">
+                                        <button type="button" class="btn-cancel" onclick="hideAddDocCategoryForm()">取消</button>
+                                        <button type="button" class="btn-submit" onclick="addDocCategory()">创建</button>
+                                    </div>
+                                </div>
+
                                 <div class="document-tree" id="documentTree" role="tree">
                                     <div class="empty-state">
                                         <span>暂无文档</span>
@@ -323,18 +345,20 @@
                                         </svg>
                                         学生分类
                                     </h3>
-                                    <button class="btn-add-student" onclick="showAddStudentForm()" type="button">
-                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                                            <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                        </svg>
-                                        <span>添加学生</span>
-                                    </button>
-                                    <button class="btn-add-student" onclick="showAddCategoryForm()" type="button">
-                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                                            <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                        </svg>
-                                        <span>创建分类</span>
-                                    </button>
+                                    <div class="btn-group">
+                                        <button class="btn-add-student" onclick="showAddCategoryForm()" type="button">
+                                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                                <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                            </svg>
+                                            <span>创建分类</span>
+                                        </button>
+                                        <button class="btn-add-student" onclick="showAddStudentForm()" type="button">
+                                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                                <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                            </svg>
+                                            <span>添加学生</span>
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div id="addCategoryForm" class="add-student-form" style="display: none;">
@@ -442,8 +466,8 @@
                                     <div class="form-group">
                                         <label for="param-max_tokens">Max Tokens</label>
                                         <div class="param-input-wrapper">
-                                            <input type="number" id="param-max_tokens" class="param-input" step="1" min="1" max="8192">
-                                            <span class="param-range">1 - 8192</span>
+                                            <input type="number" id="param-max_tokens" class="param-input" step="1" min="100" max="8192">
+                                            <span class="param-range">100 - 8192</span>
                                         </div>
                                         <p class="param-description">生成文本的最大长度（token数）</p>
                                     </div>
@@ -487,24 +511,24 @@
                                     <div class="form-group">
                                         <label for="param-chunk_size">Chunk Size</label>
                                         <div class="param-input-wrapper">
-                                            <input type="number" id="param-chunk_size" class="param-input" step="1" min="100" max="4000">
-                                            <span class="param-range">100 - 4000</span>
+                                            <input type="number" id="param-chunk_size" class="param-input" step="1" min="100" max="2000">
+                                            <span class="param-range">100 - 2000</span>
                                         </div>
                                         <p class="param-description">文档分块大小，影响检索精度</p>
                                     </div>
                                     <div class="form-group">
                                         <label for="param-chunk_overlap">Chunk Overlap</label>
                                         <div class="param-input-wrapper">
-                                            <input type="number" id="param-chunk_overlap" class="param-input" step="1" min="0" max="1000">
-                                            <span class="param-range">0 - 1000</span>
+                                            <input type="number" id="param-chunk_overlap" class="param-input" step="1" min="0" max="500">
+                                            <span class="param-range">0 - 500</span>
                                         </div>
                                         <p class="param-description">分块重叠大小，保持上下文连贯性</p>
                                     </div>
                                     <div class="form-group">
                                         <label for="param-retrieval_k">Retrieval K</label>
                                         <div class="param-input-wrapper">
-                                            <input type="number" id="param-retrieval_k" class="param-input" step="1" min="1" max="20">
-                                            <span class="param-range">1 - 20</span>
+                                            <input type="number" id="param-retrieval_k" class="param-input" step="1" min="1" max="10">
+                                            <span class="param-range">1 - 10</span>
                                         </div>
                                         <p class="param-description">检索返回的文档片段数量</p>
                                     </div>
@@ -569,6 +593,26 @@
                 </div>
                 <p class="loading-text">正在检索知识库...</p>
             </div>
+        </div>
+    </div>
+
+    <div class="context-menu" id="categoryContextMenu" style="display: none;">
+        <div class="context-menu-item" onclick="deleteCustomCategory()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+            <span class="context-menu-text">删除分类</span>
+        </div>
+    </div>
+
+    <div class="context-menu" id="studentCategoryContextMenu" style="display: none;">
+        <div class="context-menu-item" onclick="deleteStudentCategory()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+            <span class="context-menu-text">删除分类</span>
         </div>
     </div>
 
