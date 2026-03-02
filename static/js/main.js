@@ -7,6 +7,8 @@ let currentConversationId = null;
 let conversations = [];
 let isKbReady = false;
 let isStreaming = false;
+let studentCategories = [];
+let selectedCategoryId = null;
 
 const chatMessages = document.getElementById('chatMessages');
 const messageInput = document.getElementById('messageInput');
@@ -22,6 +24,9 @@ const docCount = document.getElementById('docCount');
 const sendBtn = document.getElementById('sendBtn');
 const sidebar = document.getElementById('sidebar');
 const studentList = document.getElementById('studentList');
+const studentSearchInput = document.getElementById('studentSearchInput');
+
+let allStudents = [];
 
 function logout() {
     window.location.href = '/logout';
@@ -32,9 +37,20 @@ document.addEventListener('DOMContentLoaded', function() {
     checkKbStatus();
     setupDragAndDrop();
     setupTextareaAutoResize();
+    setupStudentSearch();
+    setupModelParamValidation();
     
     messageInput.focus();
 });
+
+function setupStudentSearch() {
+    if (studentSearchInput) {
+        studentSearchInput.addEventListener('input', function() {
+            const keyword = this.value.trim();
+            searchStudents(keyword);
+        });
+    }
+}
 
 function toggleSidebar() {
     sidebar.classList.toggle('open');
@@ -59,23 +75,220 @@ function handleKeyDown(event) {
     }
 }
 
-async function loadStudentList() {
+async function loadStudentCategories() {
     try {
-        const response = await fetch('/api/students');
+        const response = await fetch('/api/student-categories');
+        studentCategories = await response.json();
+        renderStudentTree(studentCategories);
+    } catch (error) {
+        console.error('加载学生分类失败:', error);
+    }
+}
+
+function renderStudentTree(categories) {
+    const treeContainer = document.getElementById('studentCategoryTree');
+    if (!treeContainer) return;
+
+    treeContainer.innerHTML = '';
+
+    // 更新添加学生表单中的分类下拉框
+    const categorySelect = document.getElementById('studentCategorySelect');
+    if (categorySelect) {
+        categorySelect.innerHTML = '<option value="">-- 选择分类 --</option>';
+        categories.forEach(category => {
+            const option = document.createElement('option');
+            option.value = category.id;
+            option.textContent = category.name;
+            categorySelect.appendChild(option);
+        });
+    }
+
+    if (categories.length === 0) {
+        treeContainer.innerHTML = '<div class="folder-empty">暂无分类</div>';
+        return;
+    }
+
+    categories.forEach(category => {
+        const folder = document.createElement('div');
+        folder.className = 'folder-item';
+
+        const isSelected = selectedCategoryId === category.id;
+
+        folder.innerHTML = `
+            <div class="folder-header ${isSelected ? 'selected' : ''}" onclick="selectCategory(${category.id})">
+                <div class="folder-icon" id="categoryIcon-${category.id}" onclick="event.stopPropagation(); toggleStudentFolder(${category.id})">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                </div>
+                <div class="folder-category-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                        <circle cx="12" cy="7" r="4"/>
+                    </svg>
+                </div>
+                <span class="folder-name">${category.name}</span>
+                <span class="folder-count">${category.student_count || 0}</span>
+                <button class="btn-remove-doc" onclick="event.stopPropagation(); deleteCategory(${category.id})" aria-label="删除分类">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="folder-content" id="categoryContent-${category.id}">
+                ${category.description ? `<div class="folder-description">${category.description}</div>` : ''}
+            </div>
+        `;
+
+        treeContainer.appendChild(folder);
+    });
+}
+
+function toggleStudentFolder(categoryId) {
+    const content = document.getElementById(`categoryContent-${categoryId}`);
+    const icon = document.getElementById(`categoryIcon-${categoryId}`);
+
+    if (content && icon) {
+        content.classList.toggle('expanded');
+        icon.classList.toggle('expanded');
+    }
+}
+
+function showAddCategoryForm() {
+    const form = document.getElementById('addCategoryForm');
+    if (form) {
+        form.style.display = 'block';
+        document.getElementById('categoryName').focus();
+    }
+}
+
+function hideAddCategoryForm() {
+    const form = document.getElementById('addCategoryForm');
+    if (form) {
+        form.style.display = 'none';
+        document.getElementById('categoryName').value = '';
+        document.getElementById('categoryDescription').value = '';
+    }
+}
+
+async function addCategory() {
+    const name = document.getElementById('categoryName').value.trim();
+    const description = document.getElementById('categoryDescription').value.trim();
+
+    if (!name) {
+        alert('请输入分类名称');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/student-categories', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name, description })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            hideAddCategoryForm();
+            await loadStudentCategories();
+        } else {
+            alert('添加失败: ' + (data.error || '未知错误'));
+        }
+    } catch (error) {
+        console.error('添加分类失败:', error);
+        alert('添加失败，请重试');
+    }
+}
+
+async function deleteCategory(categoryId) {
+    const category = studentCategories.find(c => c.id === categoryId);
+    const categoryName = category ? category.name : '该分类';
+
+    if (!confirm(`确定要删除分类 "${categoryName}" 吗？该分类下的学生将被移出此分类。`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/student-categories/${categoryId}`, {
+            method: 'DELETE'
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            if (selectedCategoryId === categoryId) {
+                selectedCategoryId = null;
+            }
+            await loadStudentCategories();
+            await loadStudentList();
+        } else {
+            alert('删除失败: ' + (data.error || '未知错误'));
+        }
+    } catch (error) {
+        console.error('删除分类失败:', error);
+        alert('删除失败，请重试');
+    }
+}
+
+function selectCategory(categoryId) {
+    selectedCategoryId = categoryId;
+    renderStudentTree(studentCategories);
+    loadStudentList(categoryId);
+}
+
+async function loadStudentList(categoryId = null) {
+    try {
+        let url = '/api/students';
+        if (categoryId) {
+            url = `/api/students?category_id=${categoryId}`;
+        }
+        const response = await fetch(url);
         const students = await response.json();
-        renderStudentList(students);
+        allStudents = students;
+        
+        const keyword = studentSearchInput ? studentSearchInput.value.trim() : '';
+        if (keyword) {
+            searchStudents(keyword);
+        } else {
+            renderStudentList([]);
+        }
     } catch (error) {
         console.error('加载学生列表失败:', error);
     }
 }
 
-function renderStudentList(students) {
+function searchStudents(keyword) {
+    if (!keyword || keyword.trim() === '') {
+        renderStudentList([]);
+        return;
+    }
+    
+    const lowerKeyword = keyword.toLowerCase().trim();
+    const filteredStudents = allStudents.filter(student => {
+        const usernameMatch = student.username.toLowerCase().includes(lowerKeyword);
+        const nameMatch = student.name.toLowerCase().includes(lowerKeyword);
+        return usernameMatch || nameMatch;
+    });
+    
+    renderStudentList(filteredStudents, true);
+}
+
+function renderStudentList(students, isSearchResult = false) {
     if (!studentList) return;
     
     studentList.innerHTML = '';
     
-    if (students.length === 0) {
-        studentList.innerHTML = '<div class="empty-state"><span>暂无学生账号</span></div>';
+    if (!isSearchResult && students.length === 0) {
+        studentList.innerHTML = '<div class="empty-state"><span>请输入学号或姓名进行搜索</span></div>';
+        return;
+    }
+    
+    if (isSearchResult && students.length === 0) {
+        studentList.innerHTML = '<div class="empty-state"><span>未找到匹配的学生</span></div>';
         return;
     }
     
@@ -131,26 +344,33 @@ async function addStudent() {
     const username = document.getElementById('studentUsername').value.trim();
     const name = document.getElementById('studentName').value.trim();
     const password = document.getElementById('studentPassword').value;
-    
+    const categoryId = document.getElementById('studentCategorySelect')?.value;
+
     if (!username || !name || !password) {
         alert('请填写所有字段');
         return;
     }
-    
+
     try {
+        const body = { username, name, password };
+        if (categoryId && categoryId !== '') {
+            body.category_id = parseInt(categoryId);
+        }
+
         const response = await fetch('/api/students', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ username, name, password })
+            body: JSON.stringify(body)
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
             hideAddStudentForm();
-            await loadStudentList();
+            await loadStudentList(selectedCategoryId);
+            await loadStudentCategories();
         } else {
             alert('添加失败: ' + (data.error || '未知错误'));
         }
@@ -592,8 +812,10 @@ async function toggleSettingsPanel() {
         settingsModal.classList.remove('show');
     } else {
         settingsModal.classList.add('show');
-        await loadDocumentList();
+        await loadDocumentTree();
+        await loadModelSettings();
         if (window.currentUser && window.currentUser.role === 'admin') {
+            await loadStudentCategories();
             await loadStudentList();
         }
     }
@@ -939,4 +1161,244 @@ async function deleteConversation(convId) {
         console.error('删除对话失败:', error);
         alert('删除失败，请重试');
     }
+}
+
+// 模型参数设置相关函数
+const MODEL_PARAM_RANGES = {
+    temperature: { min: 0, max: 2, default: 0.7 },
+    max_tokens: { min: 1, max: 8192, default: 2048 },
+    top_p: { min: 0, max: 1, default: 0.9 },
+    frequency_penalty: { min: -2, max: 2, default: 0 },
+    presence_penalty: { min: -2, max: 2, default: 0 },
+    chunk_size: { min: 100, max: 4000, default: 1000 },
+    chunk_overlap: { min: 0, max: 1000, default: 200 },
+    retrieval_k: { min: 1, max: 20, default: 5 }
+};
+
+let currentModelSettings = {};
+
+async function loadModelSettings() {
+    try {
+        const response = await fetch('/api/settings');
+        if (!response.ok) {
+            throw new Error('加载设置失败');
+        }
+        const data = await response.json();
+        // 后端返回格式: {success: true, settings: [...]}
+        const settings = data.settings || data;
+        currentModelSettings = settings;
+        renderModelSettings(settings);
+    } catch (error) {
+        console.error('加载模型设置失败:', error);
+        showModelSettingsError('加载设置失败，请重试');
+    }
+}
+
+function renderModelSettings(settings) {
+    const llmParams = ['temperature', 'max_tokens', 'top_p', 'frequency_penalty', 'presence_penalty'];
+    const embeddingParams = ['chunk_size', 'chunk_overlap', 'retrieval_k'];
+    
+    // 将数组格式转换为对象格式
+    // 后端返回格式: [{setting_key: 'temperature', value: 0.7, ...}, ...]
+    let settingsObj = settings;
+    if (Array.isArray(settings)) {
+        settingsObj = {};
+        settings.forEach(item => {
+            // 使用 setting_key 作为键，value 作为值
+            const key = item.setting_key || item.key;
+            const value = item.value !== undefined ? item.value : item.setting_value;
+            if (key) {
+                settingsObj[key] = value;
+            }
+        });
+    }
+    
+    llmParams.forEach(param => {
+        const input = document.getElementById(`param-${param}`);
+        if (input && settingsObj[param] !== undefined) {
+            input.value = settingsObj[param];
+            input.classList.remove('error');
+        }
+    });
+    
+    embeddingParams.forEach(param => {
+        const input = document.getElementById(`param-${param}`);
+        if (input && settingsObj[param] !== undefined) {
+            input.value = settingsObj[param];
+            input.classList.remove('error');
+        }
+    });
+}
+
+function validateSetting(key, value, min, max) {
+    const numValue = parseFloat(value);
+    
+    if (isNaN(numValue)) {
+        return { valid: false, message: '请输入有效的数字' };
+    }
+    
+    if (numValue < min) {
+        return { valid: false, message: `值不能小于 ${min}` };
+    }
+    
+    if (numValue > max) {
+        return { valid: false, message: `值不能大于 ${max}` };
+    }
+    
+    return { valid: true, value: numValue };
+}
+
+function setupModelParamValidation() {
+    const paramIds = ['temperature', 'max_tokens', 'top_p', 'frequency_penalty', 'presence_penalty', 'chunk_size', 'chunk_overlap', 'retrieval_k'];
+    
+    paramIds.forEach(param => {
+        const input = document.getElementById(`param-${param}`);
+        if (input) {
+            input.addEventListener('change', function() {
+                const range = MODEL_PARAM_RANGES[param];
+                const result = validateSetting(param, this.value, range.min, range.max);
+                
+                if (!result.valid) {
+                    this.classList.add('error');
+                    showModelSettingsError(result.message);
+                } else {
+                    this.classList.remove('error');
+                    clearModelSettingsError();
+                }
+            });
+            
+            input.addEventListener('input', function() {
+                if (this.classList.contains('error')) {
+                    const range = MODEL_PARAM_RANGES[param];
+                    const result = validateSetting(param, this.value, range.min, range.max);
+                    if (result.valid) {
+                        this.classList.remove('error');
+                        clearModelSettingsError();
+                    }
+                }
+            });
+        }
+    });
+}
+
+async function saveModelSettings() {
+    const settings = {};
+    const paramIds = ['temperature', 'max_tokens', 'top_p', 'frequency_penalty', 'presence_penalty', 'chunk_size', 'chunk_overlap', 'retrieval_k'];
+    
+    for (const param of paramIds) {
+        const input = document.getElementById(`param-${param}`);
+        if (!input) continue;
+        
+        const range = MODEL_PARAM_RANGES[param];
+        const result = validateSetting(param, input.value, range.min, range.max);
+        
+        if (!result.valid) {
+            input.classList.add('error');
+            showModelSettingsError(`${param}: ${result.message}`);
+            return;
+        }
+        
+        settings[param] = result.value;
+    }
+    
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(settings)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            currentModelSettings = settings;
+            showModelSettingsSuccess('设置已保存');
+        } else {
+            showModelSettingsError('保存失败: ' + (data.error || '未知错误'));
+        }
+    } catch (error) {
+        console.error('保存模型设置失败:', error);
+        showModelSettingsError('保存失败，请重试');
+    }
+}
+
+async function resetModelSettings() {
+    if (!confirm('确定要恢复默认设置吗？')) {
+        return;
+    }
+    
+    const defaultSettings = {};
+    for (const [key, config] of Object.entries(MODEL_PARAM_RANGES)) {
+        defaultSettings[key] = config.default;
+    }
+    
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(defaultSettings)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            currentModelSettings = defaultSettings;
+            renderModelSettings(defaultSettings);
+            showModelSettingsSuccess('已恢复默认设置');
+        } else {
+            showModelSettingsError('恢复默认设置失败: ' + (data.error || '未知错误'));
+        }
+    } catch (error) {
+        console.error('恢复默认设置失败:', error);
+        showModelSettingsError('恢复默认设置失败，请重试');
+    }
+}
+
+function showModelSettingsError(message) {
+    let errorDiv = document.getElementById('modelSettingsError');
+    if (!errorDiv) {
+        errorDiv = document.createElement('div');
+        errorDiv.id = 'modelSettingsError';
+        errorDiv.className = 'status-message error';
+        const panel = document.getElementById('panel-model');
+        if (panel) {
+            panel.insertBefore(errorDiv, panel.firstChild);
+        }
+    }
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+    
+    setTimeout(() => {
+        errorDiv.style.display = 'none';
+    }, 5000);
+}
+
+function clearModelSettingsError() {
+    const errorDiv = document.getElementById('modelSettingsError');
+    if (errorDiv) {
+        errorDiv.style.display = 'none';
+    }
+}
+
+function showModelSettingsSuccess(message) {
+    let successDiv = document.getElementById('modelSettingsSuccess');
+    if (!successDiv) {
+        successDiv = document.createElement('div');
+        successDiv.id = 'modelSettingsSuccess';
+        successDiv.className = 'status-message success';
+        const panel = document.getElementById('panel-model');
+        if (panel) {
+            panel.insertBefore(successDiv, panel.firstChild);
+        }
+    }
+    successDiv.textContent = message;
+    successDiv.style.display = 'block';
+    
+    setTimeout(() => {
+        successDiv.style.display = 'none';
+    }, 3000);
 }

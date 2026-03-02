@@ -4,6 +4,7 @@
 """
 SiliconFlow Embedding 类
 支持 BAAI/bge-m3 等嵌入模型
+支持动态参数配置
 """
 
 import requests
@@ -23,8 +24,8 @@ class SiliconFlowEmbeddings(Embeddings):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-        batch_size: int = 20,
-        max_workers: int = 4
+        batch_size: int = None,
+        max_workers: int = None
     ):
         """
         初始化 SiliconFlow Embedding 客户端
@@ -32,20 +33,37 @@ class SiliconFlowEmbeddings(Embeddings):
         @param api_key SiliconFlow API Key
         @param base_url API 基础 URL
         @param model 嵌入模型名称
-        @param batch_size 批量处理大小
-        @param max_workers 并发工作线程数
+        @param batch_size 批量处理大小（默认从配置读取）
+        @param max_workers 并发工作线程数（默认从配置读取）
         """
         self.api_key = api_key or Config.SILICONFLOW_API_KEY
         self.base_url = base_url or Config.SILICONFLOW_BASE_URL
         self.model = model or Config.SILICONFLOW_EMBEDDING_MODEL
         self.api_url = f"{self.base_url}/embeddings"
-        self.batch_size = batch_size
-        self.max_workers = max_workers
+
+        # 支持动态参数配置
+        self.batch_size = batch_size or Config.get_setting('embedding_batch_size', 20)
+        self.max_workers = max_workers or Config.get_setting('embedding_max_workers', 4)
 
         if not self.api_key:
             raise ValueError("SILICONFLOW_API_KEY 未配置，请在 .env 文件中设置")
 
-        logger.info(f"初始化 SiliconFlow Embedding: model={self.model}")
+        logger.info(f"初始化 SiliconFlow Embedding: model={self.model}, batch_size={self.batch_size}")
+
+    def update_settings(self, batch_size: int = None, max_workers: int = None):
+        """
+        更新 Embedding 设置
+
+        @param batch_size 新的批量处理大小
+        @param max_workers 新的并发工作线程数
+        """
+        if batch_size is not None:
+            self.batch_size = batch_size
+            logger.info(f"更新 Embedding batch_size: {batch_size}")
+
+        if max_workers is not None:
+            self.max_workers = max_workers
+            logger.info(f"更新 Embedding max_workers: {max_workers}")
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """

@@ -69,15 +69,44 @@ class KnowledgeBaseBuilder:
 
         self.embeddings = SiliconFlowEmbeddings()
 
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=Config.CHUNK_SIZE,
-            chunk_overlap=Config.CHUNK_OVERLAP,
-            separators=["\n\n", "\n", "。", "；", " "]
-        )
+        # 动态获取 chunk 参数
+        self._init_text_splitter()
 
         self._ensure_metadata_file()
 
         logger.info(f"初始化知识库构建器: db_path={self.db_path}")
+
+    def _init_text_splitter(self):
+        """初始化文本分割器（使用动态参数）"""
+        # 获取动态参数
+        embedding_settings = Config.get_embedding_settings()
+
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=embedding_settings['chunk_size'],
+            chunk_overlap=embedding_settings['chunk_overlap'],
+            separators=["\n\n", "\n", "。", "；", " "]
+        )
+
+        logger.info(
+            f"初始化文本分割器: chunk_size={embedding_settings['chunk_size']}, "
+            f"chunk_overlap={embedding_settings['chunk_overlap']}"
+        )
+
+    def reload_settings(self):
+        """
+        重新加载设置（用于参数更新后）
+
+        重新初始化文本分割器以应用新的参数设置
+        """
+        logger.info("重新加载知识库构建器设置...")
+
+        try:
+            # 重新初始化文本分割器
+            self._init_text_splitter()
+            logger.info("知识库构建器设置重新加载完成")
+        except Exception as e:
+            logger.error(f"重新加载设置失败: {e}")
+            raise
 
     def _ensure_metadata_file(self):
         """确保元数据文件存在"""

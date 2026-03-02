@@ -14,6 +14,7 @@ from flask import session, redirect, url_for, flash
 from typing import Optional, Dict, Callable
 
 from logger import logger
+from database import db
 
 
 class UserRole:
@@ -68,8 +69,7 @@ class UserManager:
     
     def __init__(self):
         """初始化用户管理器"""
-        self._users: Dict[str, Dict] = {}
-        self._init_default_users()
+        logger.info("用户管理器初始化完成")
     
     def _hash_password(self, password: str, salt: str = None) -> tuple:
         """
@@ -90,23 +90,6 @@ class UserManager:
         )
         return hashed.hex(), salt
     
-    def _init_default_users(self):
-        """初始化默认用户"""
-        admin_password_hash, admin_salt = self._hash_password('123456')
-        
-        self._users = {
-            '202203010104': {
-                'user_id': 'admin_001',
-                'username': '202203010104',
-                'password_hash': admin_password_hash,
-                'salt': admin_salt,
-                'role': UserRole.ADMIN,
-                'name': '管理员'
-            }
-        }
-        
-        logger.info("用户管理器初始化完成，已加载默认管理员账号")
-    
     def verify_user(self, username: str, password: str) -> Optional[User]:
         """
         验证用户登录
@@ -115,7 +98,11 @@ class UserManager:
         @param password 密码
         @return 验证成功返回 User 对象，失败返回 None
         """
-        user_data = self._users.get(username)
+        try:
+            user_data = db.get_user_by_username(username)
+        except Exception as e:
+            logger.error(f"验证用户时数据库错误: {e}")
+            return None
         
         if not user_data:
             logger.warning(f"登录失败: 用户不存在 - {username}")
@@ -146,34 +133,47 @@ class UserManager:
         @param name 显示名称
         @return 是否成功
         """
-        if username in self._users:
+        try:
+            # 检查用户是否已存在
+            existing_user = db.get_user_by_username(username)
+            if existing_user:
+                logger.warning(f"添加用户失败: 用户 '{username}' 已存在")
+                return False
+            
+            password_hash, salt = self._hash_password(password)
+            user_id = f"{role}_{secrets.token_hex(4)}"
+            
+            db.create_user(
+                user_id=user_id,
+                username=username,
+                password_hash=password_hash,
+                salt=salt,
+                role=role,
+                name=name
+            )
+            
+            logger.info(f"新用户已添加: {username} ({role})")
+            return True
+            
+        except Exception as e:
+            logger.error(f"添加用户失败: {e}")
             return False
-        
-        password_hash, salt = self._hash_password(password)
-        
-        self._users[username] = {
-            'user_id': f"{role}_{secrets.token_hex(4)}",
-            'username': username,
-            'password_hash': password_hash,
-            'salt': salt,
-            'role': role,
-            'name': name
-        }
-        
-        logger.info(f"新用户已添加: {username} ({role})")
-        return True
     
     def get_user(self, username: str) -> Optional[Dict]:
         """获取用户信息（不含密码）"""
-        user_data = self._users.get(username)
-        if user_data:
-            return {
-                'user_id': user_data['user_id'],
-                'username': user_data['username'],
-                'role': user_data['role'],
-                'name': user_data['name']
-            }
-        return None
+        try:
+            user_data = db.get_user_by_username(username)
+            if user_data:
+                return {
+                    'user_id': user_data['user_id'],
+                    'username': user_data['username'],
+                    'role': user_data['role'],
+                    'name': user_data['name']
+                }
+            return None
+        except Exception as e:
+            logger.error(f"获取用户信息失败: {e}")
+            return None
     
     def list_students(self) -> list:
         """
@@ -181,15 +181,19 @@ class UserManager:
         
         @return 学生列表
         """
-        students = []
-        for username, data in self._users.items():
-            if data['role'] == UserRole.STUDENT:
-                students.append({
-                    'username': username,
-                    'name': data['name'],
-                    'user_id': data['user_id']
-                })
-        return students
+        try:
+            students = db.list_users(role='student')
+            return [
+                {
+                    'username': student['username'],
+                    'name': student['name'],
+                    'user_id': student['user_id']
+                }
+                for student in students
+            ]
+        except Exception as e:
+            logger.error(f"获取学生列表失败: {e}")
+            return []
     
     def delete_user(self, username: str) -> bool:
         """
@@ -198,16 +202,25 @@ class UserManager:
         @param username 用户名
         @return 是否成功
         """
-        if username not in self._users:
+        try:
+            # 先获取用户信息，检查是否为管理员
+            user_data = db.get_user_by_username(username)
+            if not user_data:
+                logger.warning(f"删除用户失败: 用户 '{username}' 不存在")
+                return False
+            
+            if user_data['role'] == UserRole.ADMIN:
+                logger.warning(f"删除用户失败: 不能删除管理员账号 '{username}'")
+                return False
+            
+            result = db.delete_user(username)
+            if result:
+                logger.info(f"用户已删除: {username}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"删除用户失败: {e}")
             return False
-        
-        user_data = self._users[username]
-        if user_data['role'] == UserRole.ADMIN:
-            return False
-        
-        del self._users[username]
-        logger.info(f"用户已删除: {username}")
-        return True
 
 
 user_manager = UserManager()

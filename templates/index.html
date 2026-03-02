@@ -239,6 +239,14 @@
                             </svg>
                             <span>学生账号管理</span>
                         </button>
+                        <button class="settings-nav-item" data-tab="model" onclick="switchSettingsTab('model')" type="button">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                                <path d="M2 17l10 5 10-5"/>
+                                <path d="M2 12l10 5 10-5"/>
+                            </svg>
+                            <span>模型参数</span>
+                        </button>
                         {% else %}
                         <button class="settings-nav-item active" data-tab="about" onclick="switchSettingsTab('about')" type="button">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -311,12 +319,9 @@
                                 <div class="section-header-row">
                                     <h3>
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                                            <circle cx="9" cy="7" r="4"/>
-                                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                                         </svg>
-                                        学生账号列表
+                                        学生分类
                                     </h3>
                                     <button class="btn-add-student" onclick="showAddStudentForm()" type="button">
                                         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -324,8 +329,60 @@
                                         </svg>
                                         <span>添加学生</span>
                                     </button>
+                                    <button class="btn-add-student" onclick="showAddCategoryForm()" type="button">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                            <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                        </svg>
+                                        <span>创建分类</span>
+                                    </button>
                                 </div>
-                                
+
+                                <div id="addCategoryForm" class="add-student-form" style="display: none;">
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="categoryName">分类名称</label>
+                                            <input type="text" id="categoryName" placeholder="请输入分类名称" required>
+                                        </div>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="categoryDescription">分类描述（可选）</label>
+                                            <input type="text" id="categoryDescription" placeholder="请输入分类描述">
+                                        </div>
+                                    </div>
+                                    <div class="form-actions">
+                                        <button type="button" class="btn-cancel" onclick="hideAddCategoryForm()">取消</button>
+                                        <button type="button" class="btn-submit" onclick="addCategory()">创建</button>
+                                    </div>
+                                </div>
+
+                                <div class="document-tree" id="studentCategoryTree" role="tree">
+                                    <div class="empty-state">
+                                        <span>暂无分类</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="admin-section">
+                                <div class="section-header-row">
+                                    <h3>
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                            <circle cx="9" cy="7" r="4"/>
+                                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                        </svg>
+                                        学生账号列表
+                                    </h3>
+                                    <div class="search-box">
+                                        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <circle cx="11" cy="11" r="8"/>
+                                            <path d="M21 21l-4.35-4.35"/>
+                                        </svg>
+                                        <input type="text" id="studentSearchInput" placeholder="搜索学号或姓名..." aria-label="搜索学生">
+                                    </div>
+                                </div>
+
                                 <div id="addStudentForm" class="add-student-form" style="display: none;">
                                     <div class="form-row">
                                         <div class="form-group">
@@ -342,18 +399,134 @@
                                             <label for="studentPassword">密码</label>
                                             <input type="password" id="studentPassword" placeholder="请输入密码" required>
                                         </div>
+                                        <div class="form-group">
+                                            <label for="studentCategorySelect">所属分类</label>
+                                            <select id="studentCategorySelect" class="category-select">
+                                                <option value="">-- 选择分类 --</option>
+                                            </select>
+                                        </div>
                                     </div>
                                     <div class="form-actions">
                                         <button type="button" class="btn-cancel" onclick="hideAddStudentForm()">取消</button>
                                         <button type="button" class="btn-submit" onclick="addStudent()">添加</button>
                                     </div>
                                 </div>
-                                
+
                                 <div class="student-list" id="studentList" role="list">
                                     <div class="empty-state">
                                         <span>暂无学生账号</span>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-panel" id="panel-model">
+                            <div class="admin-section">
+                                <h3>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                                        <line x1="12" y1="22.08" x2="12" y2="12"/>
+                                    </svg>
+                                    大语言模型参数
+                                </h3>
+                                <div class="model-params-form">
+                                    <div class="form-group">
+                                        <label for="param-temperature">Temperature</label>
+                                        <div class="param-input-wrapper">
+                                            <input type="number" id="param-temperature" class="param-input" step="0.1" min="0" max="2">
+                                            <span class="param-range">0 - 2</span>
+                                        </div>
+                                        <p class="param-description">控制输出的随机性，值越高输出越随机，值越低输出越确定</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="param-max_tokens">Max Tokens</label>
+                                        <div class="param-input-wrapper">
+                                            <input type="number" id="param-max_tokens" class="param-input" step="1" min="1" max="8192">
+                                            <span class="param-range">1 - 8192</span>
+                                        </div>
+                                        <p class="param-description">生成文本的最大长度（token数）</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="param-top_p">Top P</label>
+                                        <div class="param-input-wrapper">
+                                            <input type="number" id="param-top_p" class="param-input" step="0.1" min="0" max="1">
+                                            <span class="param-range">0 - 1</span>
+                                        </div>
+                                        <p class="param-description">核采样参数，控制词汇选择的多样性</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="param-frequency_penalty">Frequency Penalty</label>
+                                        <div class="param-input-wrapper">
+                                            <input type="number" id="param-frequency_penalty" class="param-input" step="0.1" min="-2" max="2">
+                                            <span class="param-range">-2 - 2</span>
+                                        </div>
+                                        <p class="param-description">频率惩罚，降低重复词汇的概率</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="param-presence_penalty">Presence Penalty</label>
+                                        <div class="param-input-wrapper">
+                                            <input type="number" id="param-presence_penalty" class="param-input" step="0.1" min="-2" max="2">
+                                            <span class="param-range">-2 - 2</span>
+                                        </div>
+                                        <p class="param-description">存在惩罚，鼓励模型引入新话题</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="admin-section">
+                                <h3>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                        <line x1="3" y1="9" x2="21" y2="9"/>
+                                        <line x1="9" y1="21" x2="9" y2="9"/>
+                                    </svg>
+                                    嵌入模型参数
+                                </h3>
+                                <div class="model-params-form">
+                                    <div class="form-group">
+                                        <label for="param-chunk_size">Chunk Size</label>
+                                        <div class="param-input-wrapper">
+                                            <input type="number" id="param-chunk_size" class="param-input" step="1" min="100" max="4000">
+                                            <span class="param-range">100 - 4000</span>
+                                        </div>
+                                        <p class="param-description">文档分块大小，影响检索精度</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="param-chunk_overlap">Chunk Overlap</label>
+                                        <div class="param-input-wrapper">
+                                            <input type="number" id="param-chunk_overlap" class="param-input" step="1" min="0" max="1000">
+                                            <span class="param-range">0 - 1000</span>
+                                        </div>
+                                        <p class="param-description">分块重叠大小，保持上下文连贯性</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="param-retrieval_k">Retrieval K</label>
+                                        <div class="param-input-wrapper">
+                                            <input type="number" id="param-retrieval_k" class="param-input" step="1" min="1" max="20">
+                                            <span class="param-range">1 - 20</span>
+                                        </div>
+                                        <p class="param-description">检索返回的文档片段数量</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="model-params-actions">
+                                <button class="btn-cancel" onclick="resetModelSettings()" type="button">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <polyline points="1 4 1 10 7 10"/>
+                                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                                    </svg>
+                                    恢复默认
+                                </button>
+                                <button class="btn-submit" onclick="saveModelSettings()" type="button">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                                        <polyline points="17 21 17 13 7 13 7 21"/>
+                                        <polyline points="7 3 7 8 15 8"/>
+                                    </svg>
+                                    保存设置
+                                </button>
                             </div>
                         </div>
                         {% else %}
