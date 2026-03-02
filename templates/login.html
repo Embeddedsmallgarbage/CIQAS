@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>登录 - 高校事务智能问答系统</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --color-ivory: #FAF8F5;
+            --color-cream: #F5F1EB;
+            --color-parchment: #EDE8E0;
+            --color-sand: #E5DED3;
+            
+            --color-espresso: #3D2B1F;
+            --color-mahogany: #4A3728;
+            --color-walnut: #5D4E37;
+            --color-bronze: #8B7355;
+            --color-gold: #D4A574;
+            --color-champagne: #E8D4B8;
+            
+            --color-ink: #1A1612;
+            --color-charcoal: #2D2620;
+            --color-slate: #4A4540;
+            --color-stone: #6B6560;
+            --color-mist: #9A9490;
+            
+            --color-error: #A84848;
+            --color-success: #2D7A4F;
+            
+            --font-serif: 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
+            --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            
+            --shadow-sm: 0 2px 4px rgba(26, 22, 18, 0.06);
+            --shadow-md: 0 4px 12px rgba(26, 22, 18, 0.08);
+            --shadow-lg: 0 8px 24px rgba(26, 22, 18, 0.12);
+            
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 16px;
+            --radius-xl: 24px;
+            
+            --duration-fast: 150ms;
+            --duration-base: 200ms;
+            --duration-slow: 300ms;
+            --easing: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+        
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html {
+            font-size: 16px;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        body {
+            font-family: var(--font-sans);
+            font-weight: 400;
+            line-height: 1.6;
+            color: var(--color-ink);
+            background: var(--color-ivory);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            opacity: 0.015;
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .login-container {
+            width: 100%;
+            max-width: 420px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .login-card {
+            background: var(--color-ivory);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-lg);
+            overflow: hidden;
+            animation: fadeIn var(--duration-slow) var(--easing);
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .login-header {
+            padding: 40px 32px 32px;
+            text-align: center;
+            background: linear-gradient(180deg, var(--color-cream) 0%, var(--color-ivory) 100%);
+            border-bottom: 1px solid var(--color-sand);
+        }
+        
+        .login-logo {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 20px;
+            color: var(--color-bronze);
+        }
+        
+        .login-title {
+            font-family: var(--font-serif);
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--color-espresso);
+            margin-bottom: 8px;
+        }
+        
+        .login-subtitle {
+            font-size: 14px;
+            color: var(--color-stone);
+        }
+        
+        .login-body {
+            padding: 32px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--color-slate);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .form-input-wrapper {
+            position: relative;
+        }
+        
+        .form-input-icon {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 20px;
+            height: 20px;
+            color: var(--color-mist);
+            pointer-events: none;
+            transition: color var(--duration-fast) var(--easing);
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 14px 14px 14px 44px;
+            background: var(--color-cream);
+            border: 2px solid var(--color-sand);
+            border-radius: var(--radius-md);
+            font-family: var(--font-sans);
+            font-size: 15px;
+            color: var(--color-charcoal);
+            transition: all var(--duration-fast) var(--easing);
+            min-height: 48px;
+        }
+        
+        .form-input::placeholder {
+            color: var(--color-mist);
+        }
+        
+        .form-input:hover {
+            border-color: var(--color-bronze);
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: var(--color-bronze);
+            background: var(--color-ivory);
+            box-shadow: 0 0 0 4px rgba(139, 115, 85, 0.1);
+        }
+        
+        .form-input:focus + .form-input-icon,
+        .form-input-wrapper:hover .form-input-icon {
+            color: var(--color-bronze);
+        }
+        
+        .error-message {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            background: rgba(168, 72, 72, 0.1);
+            border: 1px solid rgba(168, 72, 72, 0.2);
+            border-radius: var(--radius-md);
+            margin-bottom: 20px;
+            color: var(--color-error);
+            font-size: 14px;
+            animation: slideDown var(--duration-fast) var(--easing);
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .error-message svg {
+            flex-shrink: 0;
+        }
+        
+        .btn-login {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 16px 24px;
+            background: linear-gradient(135deg, var(--color-espresso) 0%, var(--color-mahogany) 100%);
+            color: var(--color-ivory);
+            border: none;
+            border-radius: var(--radius-md);
+            font-family: var(--font-sans);
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--duration-base) var(--easing);
+            box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,0.1);
+            min-height: 52px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn-login::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, var(--color-gold) 0%, var(--color-bronze) 100%);
+            opacity: 0;
+            transition: opacity var(--duration-base) var(--easing);
+        }
+        
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255,255,255,0.15);
+        }
+        
+        .btn-login:hover::before {
+            opacity: 1;
+        }
+        
+        .btn-login svg, .btn-login span {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .btn-login:active {
+            transform: translateY(0);
+        }
+        
+        .btn-login:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-login:disabled::before {
+            opacity: 0;
+        }
+        
+        .login-footer {
+            padding: 24px 32px;
+            background: var(--color-cream);
+            border-top: 1px solid var(--color-sand);
+            text-align: center;
+        }
+        
+        .login-footer-text {
+            font-size: 13px;
+            color: var(--color-stone);
+        }
+        
+        .login-footer-text strong {
+            color: var(--color-bronze);
+        }
+        
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+        
+        :focus-visible {
+            outline: 2px solid var(--color-bronze);
+            outline-offset: 2px;
+        }
+        
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: none;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .btn-login.loading .spinner {
+            display: block;
+        }
+        
+        .btn-login.loading .btn-text {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-logo" aria-hidden="true">
+                    <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M32 8L8 20V44L32 56L56 44V20L32 8Z" stroke="currentColor" stroke-width="2" fill="none"/>
+                        <path d="M32 8V32M32 32L8 20M32 32L56 20M32 32V56" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
+                        <circle cx="32" cy="32" r="6" fill="currentColor"/>
+                    </svg>
+                </div>
+                <h1 class="login-title">高校事务智能问答系统</h1>
+                <p class="login-subtitle">请登录以继续使用系统</p>
+            </div>
+            
+            <div class="login-body">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="error-message" role="alert">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <line x1="12" y1="8" x2="12" y2="12"/>
+                                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                                </svg>
+                                <span>{{ message }}</span>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                <form method="POST" action="{{ url_for('login') }}" id="loginForm">
+                    <div class="form-group">
+                        <label for="username" class="form-label">账号</label>
+                        <div class="form-input-wrapper">
+                            <input 
+                                type="text" 
+                                id="username" 
+                                name="username" 
+                                class="form-input" 
+                                placeholder="请输入您的账号"
+                                required
+                                autocomplete="username"
+                                autofocus
+                            >
+                            <svg class="form-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                                <circle cx="12" cy="7" r="4"/>
+                            </svg>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password" class="form-label">密码</label>
+                        <div class="form-input-wrapper">
+                            <input 
+                                type="password" 
+                                id="password" 
+                                name="password" 
+                                class="form-input" 
+                                placeholder="请输入您的密码"
+                                required
+                                autocomplete="current-password"
+                            >
+                            <svg class="form-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                            </svg>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn-login" id="loginBtn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                            <polyline points="10 17 15 12 10 7"/>
+                            <line x1="15" y1="12" x2="3" y2="12"/>
+                        </svg>
+                        <span class="btn-text">登录</span>
+                        <div class="spinner"></div>
+                    </button>
+                </form>
+            </div>
+            
+            <div class="login-footer">
+                <p class="login-footer-text">
+                    <strong>管理员</strong> 可管理知识库 | <strong>学生</strong> 仅可使用问答
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', function() {
+            var btn = document.getElementById('loginBtn');
+            btn.classList.add('loading');
+            btn.disabled = true;
+        });
+    </script>
+</body>
+</html>

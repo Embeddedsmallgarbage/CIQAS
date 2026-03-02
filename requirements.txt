@@ -1,0 +1,18 @@
+# Web 框架
+flask==3.0.0
+werkzeug==3.0.1
+
+# RAG 相关
+langchain==0.3.0
+langchain-community==0.3.0
+langchain-deepseek==0.1.0
+faiss-cpu==1.13.0
+
+# 文档处理
+pypdf==4.0.0
+
+# 配置管理
+python-dotenv==1.0.0
+
+# HTTP 请求
+requests==2.31.0
