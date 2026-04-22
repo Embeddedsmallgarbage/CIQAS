@@ -52,15 +52,87 @@ class Config:
     # 参数默认值和范围定义
     SETTINGS_DEFAULTS = {
         # 大语言模型参数
-        'llm_temperature': {'value': 0.7, 'min': 0.0, 'max': 2.0, 'type': 'float'},
-        'llm_max_tokens': {'value': 4096, 'min': 100, 'max': 8192, 'type': 'int'},
-        'llm_top_p': {'value': 0.9, 'min': 0.0, 'max': 1.0, 'type': 'float'},
-        'llm_frequency_penalty': {'value': 0.0, 'min': -2.0, 'max': 2.0, 'type': 'float'},
-        'llm_presence_penalty': {'value': 0.0, 'min': -2.0, 'max': 2.0, 'type': 'float'},
+        'llm_temperature': {
+            'value': 0.7,
+            'min': 0.0,
+            'max': 2.0,
+            'type': 'float',
+            'category': 'llm',
+            'description': '大语言模型温度参数，控制输出的随机性',
+        },
+        'llm_max_tokens': {
+            'value': 4096,
+            'min': 100,
+            'max': 8192,
+            'type': 'int',
+            'category': 'llm',
+            'description': '大语言模型最大生成token数',
+        },
+        'llm_top_p': {
+            'value': 0.9,
+            'min': 0.0,
+            'max': 1.0,
+            'type': 'float',
+            'category': 'llm',
+            'description': '大语言模型核采样参数',
+        },
+        'llm_frequency_penalty': {
+            'value': 0.0,
+            'min': -2.0,
+            'max': 2.0,
+            'type': 'float',
+            'category': 'llm',
+            'description': '大语言模型频率惩罚参数',
+        },
+        'llm_presence_penalty': {
+            'value': 0.0,
+            'min': -2.0,
+            'max': 2.0,
+            'type': 'float',
+            'category': 'llm',
+            'description': '大语言模型存在惩罚参数',
+        },
         # 嵌入模型参数
-        'embedding_chunk_size': {'value': 500, 'min': 100, 'max': 2000, 'type': 'int'},
-        'embedding_chunk_overlap': {'value': 50, 'min': 0, 'max': 500, 'type': 'int'},
-        'embedding_retrieval_k': {'value': 3, 'min': 1, 'max': 10, 'type': 'int'},
+        'embedding_chunk_size': {
+            'value': 500,
+            'min': 100,
+            'max': 2000,
+            'type': 'int',
+            'category': 'embedding',
+            'description': '文本分块大小',
+        },
+        'embedding_chunk_overlap': {
+            'value': 50,
+            'min': 0,
+            'max': 500,
+            'type': 'int',
+            'category': 'embedding',
+            'description': '文本分块重叠大小',
+        },
+        'embedding_retrieval_k': {
+            'value': 3,
+            'min': 1,
+            'max': 10,
+            'type': 'int',
+            'category': 'embedding',
+            'description': '检索返回的文档数量',
+        },
+        'embedding_batch_size': {
+            'value': 20,
+            'min': 1,
+            'max': 200,
+            'type': 'int',
+            'category': 'embedding',
+            'description': 'Embedding 批量处理大小',
+        },
+        'embedding_max_workers': {
+            'value': 4,
+            'min': 1,
+            'max': 32,
+            'type': 'int',
+            'category': 'embedding',
+            'description': 'Embedding 并发处理线程数',
+        },
     }
 
     # 数据库实例缓存（延迟加载）
@@ -122,6 +194,8 @@ class Config:
             'chunk_size': cls.get_setting('embedding_chunk_size', cls.CHUNK_SIZE),
             'chunk_overlap': cls.get_setting('embedding_chunk_overlap', cls.CHUNK_OVERLAP),
             'retrieval_k': cls.get_setting('embedding_retrieval_k', cls.RETRIEVAL_K),
+            'batch_size': cls.get_setting('embedding_batch_size', 20),
+            'max_workers': cls.get_setting('embedding_max_workers', 4),
         }
 
     @classmethod

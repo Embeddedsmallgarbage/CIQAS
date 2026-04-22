@@ -86,9 +86,18 @@ class SiliconFlowEmbeddings(Embeddings):
                 logger.debug(f"已处理 {min(i + self.batch_size, len(texts))}/{len(texts)} 个文本")
             except Exception as e:
                 logger.warning(f"批量处理失败，切换到单条处理: {e}")
-                for text in batch:
-                    embedding = self._get_embedding(text)
-                    all_embeddings.append(embedding)
+                indexed_embeddings = [None] * len(batch)
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    future_to_index = {
+                        executor.submit(self._get_embedding, text): index
+                        for index, text in enumerate(batch)
+                    }
+
+                    for future in as_completed(future_to_index):
+                        index = future_to_index[future]
+                        indexed_embeddings[index] = future.result()
+
+                all_embeddings.extend(indexed_embeddings)
 
         return all_embeddings
 

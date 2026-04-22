@@ -565,6 +565,10 @@ async function deleteStudent(username) {
 function setupDragAndDrop() {
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
+
+    if (!uploadArea || !fileInput) {
+        return;
+    }
     
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         uploadArea.addEventListener(eventName, preventDefaults, false);
@@ -712,10 +716,40 @@ function renderMessages(messages) {
 
     hideWelcomeScreen();
     messages.forEach(msg => {
-        appendMessage(msg.role, msg.content, []);
+        appendMessage(msg.role, msg.content, msg.sources || []);
     });
 
     scrollToBottom();
+}
+
+function parseSseBuffer(buffer) {
+    const normalizedBuffer = buffer.replace(/\r\n/g, '\n');
+    const frames = normalizedBuffer.split('\n\n');
+    const hasCompleteEnding = normalizedBuffer.endsWith('\n\n');
+    const remainingBuffer = hasCompleteEnding ? '' : frames.pop() || '';
+    const events = [];
+
+    frames.forEach(frame => {
+        const dataLines = frame
+            .split('\n')
+            .filter(line => line.startsWith('data:'))
+            .map(line => line.startsWith('data: ') ? line.slice(6) : line.slice(5).trimStart());
+
+        if (dataLines.length === 0) {
+            return;
+        }
+
+        try {
+            events.push(JSON.parse(dataLines.join('\n')));
+        } catch (error) {
+            console.error('解析 SSE 事件失败:', error);
+        }
+    });
+
+    return {
+        events,
+        remainingBuffer
+    };
 }
 
 function clearChatMessages() {
@@ -764,57 +798,57 @@ async function sendMessage() {
         let assistantDiv = null;
         let fullContent = '';
         let sources = [];
+        let pendingBuffer = '';
 
         hideLoading();
+
+        const handleSseEvent = (data) => {
+            if (data.type === 'chunk') {
+                fullContent += data.content;
+
+                if (!assistantDiv) {
+                    assistantDiv = createMessageElement('assistant');
+                    chatMessages.appendChild(assistantDiv);
+                }
+
+                const contentDiv = assistantDiv.querySelector('.message-content');
+                contentDiv.innerHTML = renderMarkdown(fullContent) + '<span class="typing-cursor"></span>';
+                scrollToBottom();
+            } else if (data.type === 'done') {
+                sources = data.sources || [];
+
+                if (assistantDiv) {
+                    const contentDiv = assistantDiv.querySelector('.message-content');
+                    contentDiv.innerHTML = renderMarkdown(fullContent);
+
+                    if (sources.length > 0) {
+                        addSourcesToMessage(assistantDiv, sources);
+                    }
+                }
+
+                if (data.conversation_id !== currentConversationId) {
+                    currentConversationId = data.conversation_id;
+                    loadConversations();
+                }
+            } else if (data.type === 'error') {
+                appendMessage('assistant', `错误: ${data.message}`, []);
+            }
+        };
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
-
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    try {
-                        const data = JSON.parse(line.slice(6));
-
-                        if (data.type === 'chunk') {
-                            fullContent += data.content;
-
-                            if (!assistantDiv) {
-                                assistantDiv = createMessageElement('assistant');
-                                chatMessages.appendChild(assistantDiv);
-                            }
-
-                            const contentDiv = assistantDiv.querySelector('.message-content');
-                            contentDiv.innerHTML = renderMarkdown(fullContent) + '<span class="typing-cursor"></span>';
-                            scrollToBottom();
-                        } else if (data.type === 'done') {
-                            sources = data.sources;
-
-                            if (assistantDiv) {
-                                const contentDiv = assistantDiv.querySelector('.message-content');
-                                contentDiv.innerHTML = renderMarkdown(fullContent);
-                                
-                                if (sources.length > 0) {
-                                    addSourcesToMessage(assistantDiv, sources);
-                                }
-                            }
-
-                            if (data.conversation_id !== currentConversationId) {
-                                currentConversationId = data.conversation_id;
-                                loadConversations();
-                            }
-                        } else if (data.type === 'error') {
-                            appendMessage('assistant', `错误: ${data.message}`, []);
-                        }
-                    } catch (e) {
-                        console.error('解析响应失败:', e);
-                    }
-                }
-            }
+            pendingBuffer += decoder.decode(value, { stream: true });
+            const { events, remainingBuffer } = parseSseBuffer(pendingBuffer);
+            pendingBuffer = remainingBuffer;
+            events.forEach(handleSseEvent);
         }
+
+        pendingBuffer += decoder.decode();
+        const finalEvents = parseSseBuffer(pendingBuffer);
+        finalEvents.events.forEach(handleSseEvent);
+        pendingBuffer = finalEvents.remainingBuffer;
 
         if (!assistantDiv) {
             appendMessage('assistant', '抱歉，未能获取回复。', []);
@@ -966,14 +1000,16 @@ async function checkKbStatus() {
 
 async function toggleSettingsPanel() {
     const isShowing = settingsModal.classList.contains('show');
+    const isAdmin = window.currentUser && window.currentUser.role === 'admin';
 
     if (isShowing) {
         settingsModal.classList.remove('show');
     } else {
         settingsModal.classList.add('show');
-        await loadDocumentTree();
-        await loadModelSettings();
-        if (window.currentUser && window.currentUser.role === 'admin') {
+
+        if (isAdmin) {
+            await loadDocumentTree();
+            await loadModelSettings();
             await loadStudentCategories();
             await loadStudentList();
         }
@@ -1297,6 +1333,10 @@ async function loadCategorySelect() {
 }
 
 function renderDocumentList(documents) {
+    if (!documentList) {
+        return;
+    }
+
     documentList.innerHTML = '';
     
     if (docCount) {

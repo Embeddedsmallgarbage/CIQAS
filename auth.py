@@ -10,7 +10,7 @@ import hashlib
 import secrets
 from datetime import timedelta
 from functools import wraps
-from flask import session, redirect, url_for, flash
+from flask import session, redirect, url_for, flash, request, jsonify
 from typing import Optional, Dict, Callable
 
 from logger import logger
@@ -123,7 +123,7 @@ class UserManager:
             name=user_data['name']
         )
     
-    def add_user(self, username: str, password: str, role: str, name: str) -> bool:
+    def add_user(self, username: str, password: str, role: str, name: str, category_id: str = None) -> bool:
         """
         添加新用户
         
@@ -131,6 +131,7 @@ class UserManager:
         @param password 密码
         @param role 角色
         @param name 显示名称
+        @param category_id 学生分类 ID（可选）
         @return 是否成功
         """
         try:
@@ -149,13 +150,16 @@ class UserManager:
                 password_hash=password_hash,
                 salt=salt,
                 role=role,
-                name=name
+                name=name,
+                category_id=category_id
             )
             
             logger.info(f"新用户已添加: {username} ({role})")
             return True
             
         except Exception as e:
+            if isinstance(e, ValueError):
+                raise
             logger.error(f"添加用户失败: {e}")
             return False
     
@@ -187,7 +191,8 @@ class UserManager:
                 {
                     'username': student['username'],
                     'name': student['name'],
-                    'user_id': student['user_id']
+                    'user_id': student['user_id'],
+                    'category_id': student.get('category_id')
                 }
                 for student in students
             ]
@@ -282,6 +287,8 @@ def login_required(f: Callable) -> Callable:
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not AuthManager.is_logged_in():
+            if request.path.startswith('/api/'):
+                return jsonify({'error': '未登录或会话已失效'}), 401
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
@@ -297,8 +304,12 @@ def admin_required(f: Callable) -> Callable:
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not AuthManager.is_logged_in():
+            if request.path.startswith('/api/'):
+                return jsonify({'error': '未登录或会话已失效'}), 401
             return redirect(url_for('login'))
         if not AuthManager.is_admin():
+            if request.path.startswith('/api/'):
+                return jsonify({'error': '您没有权限访问此功能'}), 403
             flash('您没有权限访问此功能', 'error')
             return redirect(url_for('index'))
         return f(*args, **kwargs)

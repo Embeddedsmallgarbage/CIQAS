@@ -7,6 +7,8 @@
 
 import sqlite3
 import uuid
+import os
+import json
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
@@ -41,6 +43,7 @@ class Database:
         """获取数据库连接上下文管理器"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA foreign_keys = ON')
         try:
             yield conn
             conn.commit()
@@ -50,6 +53,22 @@ class Database:
             raise
         finally:
             conn.close()
+
+    @staticmethod
+    def _deserialize_sources(raw_sources: Any) -> List[Dict[str, Any]]:
+        """将数据库中的消息来源字段转换为列表"""
+        if not raw_sources:
+            return []
+
+        if isinstance(raw_sources, list):
+            return raw_sources
+
+        try:
+            sources = json.loads(raw_sources)
+            return sources if isinstance(sources, list) else []
+        except (TypeError, json.JSONDecodeError):
+            logger.warning("消息来源字段解析失败，已回退为空列表")
+            return []
 
     def _init_tables(self):
         """初始化数据表"""
@@ -84,6 +103,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS student_categories (
                     category_id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -109,6 +129,7 @@ class Database:
                     conversation_id TEXT NOT NULL,
                     role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
                     content TEXT NOT NULL,
+                    sources TEXT NOT NULL DEFAULT '[]',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
                 )
@@ -118,6 +139,26 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation
                 ON messages(conversation_id)
             ''')
+
+            cursor.execute("PRAGMA table_info(student_categories)")
+            category_columns = [column[1] for column in cursor.fetchall()]
+            if 'description' not in category_columns:
+                logger.info("添加 description 列到 student_categories 表")
+                cursor.execute('''
+                    ALTER TABLE student_categories
+                    ADD COLUMN description TEXT NOT NULL DEFAULT ''
+                ''')
+                logger.info("成功添加 description 列")
+
+            cursor.execute("PRAGMA table_info(messages)")
+            message_columns = [column[1] for column in cursor.fetchall()]
+            if 'sources' not in message_columns:
+                logger.info("添加 sources 列到 messages 表")
+                cursor.execute('''
+                    ALTER TABLE messages
+                    ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'
+                ''')
+                logger.info("成功添加 sources 列")
 
             # 检查 users 表是否已有 category_id 列，如果没有则添加
             cursor.execute("PRAGMA table_info(users)")
@@ -273,13 +314,19 @@ class Database:
             conversation = dict(row)
 
             cursor.execute('''
-                SELECT role, content, created_at
+                SELECT id, role, content, sources, created_at
                 FROM messages
                 WHERE conversation_id = ?
-                ORDER BY created_at ASC
+                ORDER BY created_at ASC, id ASC
             ''', (conversation_id,))
 
-            conversation['messages'] = [dict(m) for m in cursor.fetchall()]
+            messages = []
+            for message_row in cursor.fetchall():
+                message = dict(message_row)
+                message['sources'] = self._deserialize_sources(message.get('sources'))
+                messages.append(message)
+
+            conversation['messages'] = messages
 
         logger.debug(f"获取对话: {conversation_id}, 用户: {user_id}")
         return conversation
@@ -316,7 +363,14 @@ class Database:
         logger.debug(f"获取对话列表: 用户 {user_id}, 数量 {len(result)}")
         return result
 
-    def add_message(self, conversation_id: str, role: str, content: str, user_id: str = None) -> int:
+    def add_message(
+        self,
+        conversation_id: str,
+        role: str,
+        content: str,
+        user_id: str = None,
+        sources: Optional[List[Dict[str, Any]]] = None
+    ) -> int:
         """
         添加消息到对话
 
@@ -324,6 +378,7 @@ class Database:
         @param role 角色 (user/assistant)
         @param content 消息内容
         @param user_id 用户ID，用于验证权限（可选）
+        @param sources 来源列表（可选，仅 assistant 消息使用）
         @return 消息ID
         @raises PermissionError: 当用户无权访问此对话时
         """
@@ -341,9 +396,14 @@ class Database:
                     raise PermissionError(f"无权访问此对话: {conversation_id}")
 
             cursor.execute('''
-                INSERT INTO messages (conversation_id, role, content)
-                VALUES (?, ?, ?)
-            ''', (conversation_id, role, content))
+                INSERT INTO messages (conversation_id, role, content, sources)
+                VALUES (?, ?, ?, ?)
+            ''', (
+                conversation_id,
+                role,
+                content,
+                json.dumps(sources or [], ensure_ascii=False)
+            ))
 
             message_id = cursor.lastrowid
 
@@ -468,7 +528,16 @@ class Database:
 
     # ==================== 用户管理方法 ====================
 
-    def create_user(self, user_id: str, username: str, password_hash: str, salt: str, role: str, name: str) -> bool:
+    def create_user(
+        self,
+        user_id: str,
+        username: str,
+        password_hash: str,
+        salt: str,
+        role: str,
+        name: str,
+        category_id: str = None
+    ) -> bool:
         """
         创建用户
 
@@ -478,6 +547,7 @@ class Database:
         @param salt 盐值
         @param role 角色 (admin/student)
         @param name 显示名称
+        @param category_id 学生分类ID（可选）
         @return 是否创建成功
         @raises ValueError: 当参数无效时
         @raises sqlite3.IntegrityError: 当用户名已存在时
@@ -493,10 +563,23 @@ class Database:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+
+                if category_id:
+                    cursor.execute(
+                        '''
+                        SELECT category_id FROM student_categories
+                        WHERE category_id = ?
+                        ''',
+                        (category_id,)
+                    )
+                    if not cursor.fetchone():
+                        logger.error(f"创建用户失败: 分类 '{category_id}' 不存在")
+                        raise ValueError(f"分类 '{category_id}' 不存在")
+
                 cursor.execute('''
-                    INSERT INTO users (user_id, username, password_hash, salt, role, name)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (user_id, username, password_hash, salt, role, name))
+                    INSERT INTO users (user_id, username, password_hash, salt, role, name, category_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (user_id, username, password_hash, salt, role, name, category_id))
 
             logger.info(f"创建用户成功: {username}, 角色: {role}")
             return True
@@ -579,14 +662,14 @@ class Database:
 
             if role:
                 cursor.execute('''
-                    SELECT user_id, username, role, name, created_at
+                    SELECT user_id, username, role, name, created_at, category_id
                     FROM users
                     WHERE role = ?
                     ORDER BY created_at DESC
                 ''', (role,))
             else:
                 cursor.execute('''
-                    SELECT user_id, username, role, name, created_at
+                    SELECT user_id, username, role, name, created_at, category_id
                     FROM users
                     ORDER BY created_at DESC
                 ''')
@@ -681,9 +764,14 @@ class Database:
             import hashlib
             import secrets
 
-            default_user_id = 'admin_001'
-            default_username = '202203010104'
-            default_password = '123456'
+            default_user_id = os.getenv('DEFAULT_ADMIN_ID', self.DEFAULT_ADMIN_ID).strip() or self.DEFAULT_ADMIN_ID
+            default_username = os.getenv('DEFAULT_ADMIN_USERNAME', '').strip()
+            default_password = os.getenv('DEFAULT_ADMIN_PASSWORD', '')
+            default_name = os.getenv('DEFAULT_ADMIN_NAME', '系统管理员').strip() or '系统管理员'
+
+            if not default_username or not default_password:
+                logger.warning("未配置默认管理员凭据，跳过默认管理员创建")
+                return
 
             # 生成盐值
             salt = secrets.token_hex(16)
@@ -702,7 +790,7 @@ class Database:
                 password_hash=password_hash,
                 salt=salt,
                 role='admin',
-                name='系统管理员'
+                name=default_name
             )
 
             logger.info(f"已创建默认管理员账号: {default_username}")
@@ -713,12 +801,13 @@ class Database:
 
     # ==================== 学生分类管理方法 ====================
 
-    def create_category(self, category_id: str, name: str) -> bool:
+    def create_category(self, category_id: str, name: str, description: str = '') -> bool:
         """
         创建学生分类
 
         @param category_id 分类唯一ID
         @param name 分类名称
+        @param description 分类描述
         @return 是否创建成功
         @raises ValueError: 当参数无效时
         @raises sqlite3.IntegrityError: 当分类ID已存在时
@@ -734,9 +823,9 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO student_categories (category_id, name)
-                    VALUES (?, ?)
-                ''', (category_id, name))
+                    INSERT INTO student_categories (category_id, name, description)
+                    VALUES (?, ?, ?)
+                ''', (category_id, name, description))
 
             logger.info(f"创建分类成功: {category_id}, 名称: {name}")
             return True
@@ -762,7 +851,7 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT category_id, name, created_at
+                SELECT category_id, name, description, created_at
                 FROM student_categories
                 WHERE category_id = ?
             ''', (category_id,))
@@ -784,7 +873,7 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT sc.category_id, sc.name, sc.created_at,
+                SELECT sc.category_id, sc.name, sc.description, sc.created_at,
                        COUNT(u.user_id) as student_count
                 FROM student_categories sc
                 LEFT JOIN users u ON sc.category_id = u.category_id AND u.role = 'student'
@@ -903,7 +992,7 @@ class Database:
 
             # 获取所有分类
             cursor.execute('''
-                SELECT category_id, name, created_at
+                SELECT category_id, name, description, created_at
                 FROM student_categories
                 ORDER BY created_at ASC
             ''')
@@ -958,7 +1047,8 @@ class Database:
             # 创建默认分类
             self.create_category(
                 category_id='cat_default',
-                name='学生'
+                name='学生',
+                description=''
             )
 
             logger.info("已创建默认学生分类: cat_default")
@@ -975,82 +1065,17 @@ class Database:
         - 大语言模型参数
         - 嵌入模型参数
         """
-        default_settings = [
-            # 大语言模型参数
-            {
-                'key': 'llm_temperature',
-                'value': '0.7',
-                'type': 'float',
-                'min': '0.0',
-                'max': '2.0',
-                'description': '大语言模型温度参数，控制输出的随机性',
-                'category': 'llm'
-            },
-            {
-                'key': 'llm_max_tokens',
-                'value': '4096',
-                'type': 'int',
-                'min': '100',
-                'max': '8192',
-                'description': '大语言模型最大生成token数',
-                'category': 'llm'
-            },
-            {
-                'key': 'llm_top_p',
-                'value': '0.9',
-                'type': 'float',
-                'min': '0.0',
-                'max': '1.0',
-                'description': '大语言模型核采样参数',
-                'category': 'llm'
-            },
-            {
-                'key': 'llm_frequency_penalty',
-                'value': '0.0',
-                'type': 'float',
-                'min': '-2.0',
-                'max': '2.0',
-                'description': '大语言模型频率惩罚参数',
-                'category': 'llm'
-            },
-            {
-                'key': 'llm_presence_penalty',
-                'value': '0.0',
-                'type': 'float',
-                'min': '-2.0',
-                'max': '2.0',
-                'description': '大语言模型存在惩罚参数',
-                'category': 'llm'
-            },
-            # 嵌入模型参数
-            {
-                'key': 'embedding_chunk_size',
-                'value': '500',
-                'type': 'int',
-                'min': '100',
-                'max': '2000',
-                'description': '文本分块大小',
-                'category': 'embedding'
-            },
-            {
-                'key': 'embedding_chunk_overlap',
-                'value': '50',
-                'type': 'int',
-                'min': '0',
-                'max': '500',
-                'description': '文本分块重叠大小',
-                'category': 'embedding'
-            },
-            {
-                'key': 'embedding_retrieval_k',
-                'value': '3',
-                'type': 'int',
-                'min': '1',
-                'max': '10',
-                'description': '检索返回的文档数量',
-                'category': 'embedding'
-            }
-        ]
+        default_settings = []
+        for key, setting in Config.SETTINGS_DEFAULTS.items():
+            default_settings.append({
+                'key': key,
+                'value': str(setting['value']),
+                'type': setting['type'],
+                'min': None if setting.get('min') is None else str(setting['min']),
+                'max': None if setting.get('max') is None else str(setting['max']),
+                'description': setting.get('description', ''),
+                'category': setting['category'],
+            })
 
         try:
             with self.get_connection() as conn:

@@ -11,8 +11,7 @@ import json
 import secrets
 import uuid
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context, redirect, url_for, flash, session
-from werkzeug.utils import secure_filename
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context, redirect, url_for, flash
 
 from config import Config
 from logger import logger
@@ -45,8 +44,64 @@ app.config['MAX_CONTENT_LENGTH'] = Config.MAX_CONTENT_LENGTH
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
-qa_system = QASystem()
-kb_builder = KnowledgeBaseBuilder()
+qa_system = None
+qa_system_error = None
+kb_builder = None
+kb_builder_error = None
+
+
+def get_qa_system():
+    """延迟初始化问答系统，避免缺少配置时应用无法启动。"""
+    global qa_system, qa_system_error
+
+    if qa_system is not None:
+        return qa_system
+
+    if qa_system_error is not None:
+        return None
+
+    try:
+        qa_system = QASystem()
+    except Exception as e:
+        qa_system_error = str(e)
+        logger.error(f"问答系统初始化失败: {e}")
+        return None
+
+    return qa_system
+
+
+def get_kb_builder():
+    """延迟初始化知识库构建器，避免缺少配置时应用无法启动。"""
+    global kb_builder, kb_builder_error
+
+    if kb_builder is not None:
+        return kb_builder
+
+    if kb_builder_error is not None:
+        return None
+
+    try:
+        kb_builder = KnowledgeBaseBuilder()
+    except Exception as e:
+        kb_builder_error = str(e)
+        logger.error(f"知识库构建器初始化失败: {e}")
+        return None
+
+    return kb_builder
+
+
+def get_service_error_message() -> str:
+    """获取当前服务不可用的错误提示。"""
+    return qa_system_error or kb_builder_error or '系统服务暂时不可用，请检查配置'
+
+
+def build_stream_error_response(message: str, status_code: int = 503) -> Response:
+    """返回 SSE 格式的错误响应，兼容前端流式解析。"""
+    data = json.dumps({
+        'type': 'error',
+        'message': message
+    }, ensure_ascii=False)
+    return Response(f"data: {data}\n\n", mimetype='text/event-stream', status=status_code)
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -117,9 +172,11 @@ def index():
 @app.route('/health')
 def health():
     """健康检查端点"""
+    qa = get_qa_system()
     return jsonify({
         'status': 'healthy',
-        'kb_ready': qa_system.is_db_ready(),
+        'kb_ready': qa.is_db_ready() if qa else False,
+        'service_error': get_service_error_message() if not qa else None,
         'timestamp': datetime.now().isoformat()
     })
 
@@ -128,13 +185,22 @@ def health():
 @login_required
 def chat():
     """处理聊天请求"""
-    data = request.json
+    data = request.get_json(silent=True) or {}
     question = data.get('question', '')
     conversation_id = data.get('conversation_id')
     stream = data.get('stream', False)
 
     if not question:
+        if stream:
+            return build_stream_error_response('问题不能为空', status_code=400)
         return jsonify({'error': '问题不能为空'}), 400
+
+    qa = get_qa_system()
+    if not qa:
+        message = f"问答系统当前不可用: {get_service_error_message()}"
+        if stream:
+            return build_stream_error_response(message)
+        return jsonify({'error': message}), 503
 
     current_user = AuthManager.get_current_user()
     user_id = current_user.user_id if current_user else None
@@ -160,9 +226,10 @@ def chat():
             mimetype='text/event-stream'
         )
 
-    answer, source_docs = qa_system.get_answer(question)
+    answer, source_docs = qa.get_answer(question)
+    sources = format_sources(source_docs)
 
-    db.add_message(conversation_id, 'assistant', answer, user_id=user_id)
+    db.add_message(conversation_id, 'assistant', answer, user_id=user_id, sources=sources)
 
     logger.info(f"问答完成: conversation={conversation_id}, user={user_id}")
 
@@ -177,9 +244,18 @@ def generate_stream_response(question: str, conversation_id: str, user_id: str =
     """生成流式响应"""
     full_answer = ""
     sources = []
+    qa = get_qa_system()
+
+    if not qa:
+        error_data = json.dumps({
+            'type': 'error',
+            'message': f"问答系统当前不可用: {get_service_error_message()}"
+        }, ensure_ascii=False)
+        yield f"data: {error_data}\n\n"
+        return
 
     try:
-        for chunk, docs in qa_system.get_answer_stream(question):
+        for chunk, docs in qa.get_answer_stream(question):
             full_answer += chunk
             if not sources and docs:
                 sources = format_sources(docs)
@@ -190,7 +266,7 @@ def generate_stream_response(question: str, conversation_id: str, user_id: str =
             }, ensure_ascii=False)
             yield f"data: {data}\n\n"
 
-        db.add_message(conversation_id, 'assistant', full_answer, user_id=user_id)
+        db.add_message(conversation_id, 'assistant', full_answer, user_id=user_id, sources=sources)
 
         done_data = json.dumps({
             'type': 'done',
@@ -289,10 +365,13 @@ def delete_conversation_endpoint(conversation_id):
 @login_required
 def kb_status():
     """获取知识库状态"""
+    qa = get_qa_system()
+    kb = get_kb_builder()
     return jsonify({
-        'ready': qa_system.is_db_ready(),
-        'documents': kb_builder.list_documents(),
-        'categories': kb_builder.list_documents_by_category()
+        'ready': qa.is_db_ready() if qa else False,
+        'documents': kb.list_documents() if kb else [],
+        'categories': kb.list_documents_by_category() if kb else {},
+        'service_error': get_service_error_message() if not qa or not kb else None,
     })
 
 
@@ -318,7 +397,7 @@ def create_custom_category():
     """创建自定义文档分类（仅管理员）"""
     from build_db import DocumentCategory
 
-    data = request.json
+    data = request.get_json(silent=True) or {}
     name = data.get('name', '').strip()
 
     if not name:
@@ -379,7 +458,10 @@ def delete_custom_category(category_id):
 @admin_required
 def get_documents_by_category():
     """获取按分类组织的文档列表（仅管理员）"""
-    return jsonify(kb_builder.list_documents_by_category())
+    kb = get_kb_builder()
+    if not kb:
+        return jsonify({'error': f'知识库服务当前不可用: {get_service_error_message()}'}), 503
+    return jsonify(kb.list_documents_by_category())
 
 
 @app.route('/api/students', methods=['GET'])
@@ -429,7 +511,7 @@ def create_student():
     - password: 密码（必填）
     - category_id: 分类ID（可选，默认为 'cat_default'）
     """
-    data = request.json
+    data = request.get_json(silent=True) or {}
     
     username = data.get('username', '').strip()
     name = data.get('name', '').strip()
@@ -441,14 +523,11 @@ def create_student():
     
     try:
         # 创建用户
-        success = user_manager.add_user(username, password, 'student', name)
+        success = user_manager.add_user(username, password, 'student', name, category_id=category_id)
         
         if not success:
             return jsonify({'error': '该学号已存在'}), 400
-        
-        # 关联到分类
-        db.update_user_category(username, category_id)
-        
+
         logger.info(f"学生账号已创建: {username}, 分类: {category_id}")
         return jsonify({
             'success': True, 
@@ -500,8 +579,9 @@ def create_student_category():
     请求体:
     - name: 分类名称（必填）
     """
-    data = request.json
+    data = request.get_json(silent=True) or {}
     name = data.get('name', '').strip()
+    description = data.get('description', '').strip()
     
     if not name:
         return jsonify({'error': '分类名称不能为空'}), 400
@@ -510,14 +590,15 @@ def create_student_category():
         # 生成唯一分类ID
         category_id = f"cat_{uuid.uuid4().hex[:8]}"
         
-        db.create_category(category_id, name)
-        
+        db.create_category(category_id, name, description=description)
+
         logger.info(f"学生分类已创建: {category_id}, 名称: {name}")
         return jsonify({
             'success': True,
             'message': f'分类 "{name}" 创建成功',
             'category_id': category_id,
-            'name': name
+            'name': name,
+            'description': description
         })
     except Exception as e:
         logger.error(f"创建学生分类失败: {e}")
@@ -630,8 +711,13 @@ def upload_document():
     file.save(file_path)
 
     try:
-        count = kb_builder.process_documents([file_path], category=category)
-        qa_system.reload_vector_store()
+        kb = get_kb_builder()
+        qa = get_qa_system()
+        if not kb or not qa:
+            raise ValueError(get_service_error_message())
+
+        count = kb.process_documents([file_path], category=category)
+        qa.reload_vector_store()
 
         logger.info(f"文档上传成功: {filename}, 分类: {category}")
 
@@ -650,10 +736,16 @@ def upload_document():
 @admin_required
 def delete_document(doc_name):
     """删除知识库中的文档（仅管理员）"""
-    success = kb_builder.delete_document(doc_name)
+    kb = get_kb_builder()
+    if not kb:
+        return jsonify({'error': f'知识库服务当前不可用: {get_service_error_message()}'}), 503
+
+    success = kb.delete_document(doc_name)
 
     if success:
-        qa_system.reload_vector_store()
+        qa = get_qa_system()
+        if qa:
+            qa.reload_vector_store()
         logger.info(f"文档删除成功: {doc_name}")
         return jsonify({'success': True, 'message': f'已删除 {doc_name}'})
     else:
@@ -664,8 +756,15 @@ def delete_document(doc_name):
 @admin_required
 def clear_kb():
     """清空知识库（仅管理员）"""
-    kb_builder.clear_all()
-    qa_system.reload_vector_store()
+    kb = get_kb_builder()
+    if not kb:
+        return jsonify({'error': f'知识库服务当前不可用: {get_service_error_message()}'}), 503
+
+    kb.clear_all()
+
+    qa = get_qa_system()
+    if qa:
+        qa.reload_vector_store()
     logger.info("知识库已清空")
     return jsonify({'success': True, 'message': '知识库已清空'})
 
@@ -718,7 +817,7 @@ def update_setting():
     - embedding_chunk_overlap: 重叠大小 (0-500)
     - embedding_retrieval_k: 检索数量 (1-10)
     """
-    data = request.json
+    data = request.get_json(silent=True) or {}
 
     if not data:
         return jsonify({'error': '请求体不能为空'}), 400
@@ -747,16 +846,20 @@ def update_setting():
 
             # 重新加载相关组件的设置
             try:
-                qa_system.reload_settings()
-                logger.info("问答系统设置已重新加载")
+                qa = get_qa_system()
+                if qa:
+                    qa.reload_settings()
+                    logger.info("问答系统设置已重新加载")
             except Exception as e:
                 logger.warning(f"重新加载问答系统设置失败: {e}")
 
             # 重新加载知识库构建器设置（如果修改了 embedding 相关参数）
             if key.startswith('embedding_'):
                 try:
-                    kb_builder.reload_settings()
-                    logger.info("知识库构建器设置已重新加载")
+                    kb = get_kb_builder()
+                    if kb:
+                        kb.reload_settings()
+                        logger.info("知识库构建器设置已重新加载")
                 except Exception as e:
                     logger.warning(f"重新加载知识库构建器设置失败: {e}")
 
@@ -791,15 +894,19 @@ def reset_settings():
 
             # 重新加载相关组件的设置
             try:
-                qa_system.reload_settings()
-                logger.info("问答系统设置已重新加载")
+                qa = get_qa_system()
+                if qa:
+                    qa.reload_settings()
+                    logger.info("问答系统设置已重新加载")
             except Exception as e:
                 logger.warning(f"重新加载问答系统设置失败: {e}")
 
             # 重新加载知识库构建器设置
             try:
-                kb_builder.reload_settings()
-                logger.info("知识库构建器设置已重新加载")
+                kb = get_kb_builder()
+                if kb:
+                    kb.reload_settings()
+                    logger.info("知识库构建器设置已重新加载")
             except Exception as e:
                 logger.warning(f"重新加载知识库构建器设置失败: {e}")
 

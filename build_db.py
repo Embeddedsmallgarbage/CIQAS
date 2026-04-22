@@ -331,6 +331,7 @@ class KnowledgeBaseBuilder:
 
         all_chunks = []
         metadata = self._load_metadata()
+        incoming_doc_names = {os.path.basename(file_path) for file_path in file_paths}
 
         for file_path in file_paths:
             logger.info(f"正在处理: {os.path.basename(file_path)}")
@@ -352,17 +353,30 @@ class KnowledgeBaseBuilder:
         if not all_chunks:
             return 0
 
+        existing_docs = []
         if os.path.exists(self.db_path) and os.listdir(self.db_path):
             vector_store = FAISS.load_local(
                 self.db_path,
                 self.embeddings,
                 allow_dangerous_deserialization=True
             )
-            vector_store.add_documents(all_chunks)
-            logger.info(f"已向现有知识库添加 {len(all_chunks)} 个片段")
+            for doc in vector_store.docstore._dict.values():
+                source_name = os.path.basename(doc.metadata.get('source', ''))
+                if source_name not in incoming_doc_names:
+                    existing_docs.append(doc)
+
+            logger.info(
+                f"知识库重建前保留 {len(existing_docs)} 个旧片段，"
+                f"替换 {len(all_chunks)} 个新片段"
+            )
+
+        all_documents = existing_docs + all_chunks
+        vector_store = FAISS.from_documents(all_documents, self.embeddings)
+
+        if existing_docs:
+            logger.info(f"已重建知识库，当前包含 {len(all_documents)} 个片段")
         else:
-            vector_store = FAISS.from_documents(all_chunks, self.embeddings)
-            logger.info(f"已创建新知识库，包含 {len(all_chunks)} 个片段")
+            logger.info(f"已创建新知识库，包含 {len(all_documents)} 个片段")
 
         vector_store.save_local(self.db_path)
         logger.info(f"知识库已保存到: {self.db_path}")
