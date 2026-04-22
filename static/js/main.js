@@ -1557,7 +1557,56 @@ const MODEL_PARAM_RANGES = {
     retrieval_k: { min: 1, max: 10, default: 3 }
 };
 
+const MODEL_CONFIG_DEFAULTS = {
+    llm_provider: 'deepseek',
+    llm_base_url: 'https://api.deepseek.com',
+    llm_api_key: '',
+    llm_model: 'deepseek-chat',
+    embedding_provider: 'siliconflow',
+    embedding_base_url: 'https://api.siliconflow.cn/v1',
+    embedding_api_key: '',
+    embedding_model: 'BAAI/bge-m3'
+};
+
+const MODEL_CONFIG_FIELDS = [
+    { inputId: 'llm-provider', key: 'llm_provider', label: 'LLM 供应商', required: true },
+    { inputId: 'llm-base_url', key: 'llm_base_url', label: 'LLM 基地址', required: true },
+    { inputId: 'llm-api_key', key: 'llm_api_key', label: 'LLM API Key', required: false },
+    { inputId: 'llm-model', key: 'llm_model', label: 'LLM 模型名', required: true },
+    { inputId: 'embedding-provider', key: 'embedding_provider', label: 'Embedding 供应商', required: true },
+    { inputId: 'embedding-base_url', key: 'embedding_base_url', label: 'Embedding 基地址', required: true },
+    { inputId: 'embedding-api_key', key: 'embedding_api_key', label: 'Embedding API Key', required: false },
+    { inputId: 'embedding-model', key: 'embedding_model', label: 'Embedding 模型名', required: true }
+];
+
+const MODEL_PARAM_FIELDS = [
+    { paramId: 'temperature', key: 'llm_temperature' },
+    { paramId: 'max_tokens', key: 'llm_max_tokens' },
+    { paramId: 'top_p', key: 'llm_top_p' },
+    { paramId: 'frequency_penalty', key: 'llm_frequency_penalty' },
+    { paramId: 'presence_penalty', key: 'llm_presence_penalty' },
+    { paramId: 'chunk_size', key: 'embedding_chunk_size' },
+    { paramId: 'chunk_overlap', key: 'embedding_chunk_overlap' },
+    { paramId: 'retrieval_k', key: 'embedding_retrieval_k' }
+];
+
 let currentModelSettings = {};
+
+function normalizeModelSettings(settings) {
+    if (!Array.isArray(settings)) {
+        return settings || {};
+    }
+
+    const normalized = {};
+    settings.forEach(item => {
+        const key = item.setting_key || item.key;
+        const value = item.value !== undefined ? item.value : item.setting_value;
+        if (key) {
+            normalized[key] = value;
+        }
+    });
+    return normalized;
+}
 
 async function loadModelSettings() {
     try {
@@ -1566,8 +1615,7 @@ async function loadModelSettings() {
             throw new Error('加载设置失败');
         }
         const data = await response.json();
-        // 后端返回格式: {success: true, settings: [...]}
-        const settings = data.settings || data;
+        const settings = normalizeModelSettings(data.settings || data);
         currentModelSettings = settings;
         renderModelSettings(settings);
     } catch (error) {
@@ -1577,62 +1625,33 @@ async function loadModelSettings() {
 }
 
 function renderModelSettings(settings) {
-    const llmParams = ['temperature', 'max_tokens', 'top_p', 'frequency_penalty', 'presence_penalty'];
-    const embeddingParams = ['chunk_size', 'chunk_overlap', 'retrieval_k'];
-    
-    let settingsObj = settings;
-    if (Array.isArray(settings)) {
-        settingsObj = {};
-        settings.forEach(item => {
-            const key = item.setting_key || item.key;
-            const value = item.value !== undefined ? item.value : item.setting_value;
-            if (key) {
-                settingsObj[key] = value;
-            }
-        });
-    }
-    
-    const paramMapping = {
-        'temperature': 'llm_temperature',
-        'max_tokens': 'llm_max_tokens',
-        'top_p': 'llm_top_p',
-        'frequency_penalty': 'llm_frequency_penalty',
-        'presence_penalty': 'llm_presence_penalty',
-        'chunk_size': 'embedding_chunk_size',
-        'chunk_overlap': 'embedding_chunk_overlap',
-        'retrieval_k': 'embedding_retrieval_k'
-    };
-    
-    llmParams.forEach(param => {
-        const input = document.getElementById(`param-${param}`);
+    const settingsObj = normalizeModelSettings(settings);
+
+    MODEL_CONFIG_FIELDS.forEach(field => {
+        const input = document.getElementById(field.inputId);
         if (input) {
-            const backendKey = paramMapping[param];
-            const value = settingsObj[backendKey];
-            if (value !== undefined) {
-                input.value = value;
-            } else {
-                input.value = MODEL_PARAM_RANGES[param].default;
-            }
+            input.value = settingsObj[field.key] !== undefined
+                ? settingsObj[field.key]
+                : MODEL_CONFIG_DEFAULTS[field.key];
             input.classList.remove('error');
         }
     });
-    
-    embeddingParams.forEach(param => {
-        const input = document.getElementById(`param-${param}`);
+
+    MODEL_PARAM_FIELDS.forEach(field => {
+        const input = document.getElementById(`param-${field.paramId}`);
         if (input) {
-            const backendKey = paramMapping[param];
-            const value = settingsObj[backendKey];
+            const value = settingsObj[field.key];
             if (value !== undefined) {
                 input.value = value;
             } else {
-                input.value = MODEL_PARAM_RANGES[param].default;
+                input.value = MODEL_PARAM_RANGES[field.paramId].default;
             }
             input.classList.remove('error');
         }
     });
 }
 
-function validateSetting(key, value, min, max) {
+function validateNumericSetting(key, value, min, max) {
     const numValue = parseFloat(value);
     
     if (isNaN(numValue)) {
@@ -1650,15 +1669,23 @@ function validateSetting(key, value, min, max) {
     return { valid: true, value: numValue };
 }
 
+function validateModelConfigField(field, value) {
+    const normalizedValue = typeof value === 'string' ? value.trim() : value;
+
+    if (field.required && !normalizedValue) {
+        return { valid: false, message: `${field.label}不能为空` };
+    }
+
+    return { valid: true, value: normalizedValue || '' };
+}
+
 function setupModelParamValidation() {
-    const paramIds = ['temperature', 'max_tokens', 'top_p', 'frequency_penalty', 'presence_penalty', 'chunk_size', 'chunk_overlap', 'retrieval_k'];
-    
-    paramIds.forEach(param => {
-        const input = document.getElementById(`param-${param}`);
+    MODEL_PARAM_FIELDS.forEach(field => {
+        const input = document.getElementById(`param-${field.paramId}`);
         if (input) {
             input.addEventListener('change', function() {
-                const range = MODEL_PARAM_RANGES[param];
-                const result = validateSetting(param, this.value, range.min, range.max);
+                const range = MODEL_PARAM_RANGES[field.paramId];
+                const result = validateNumericSetting(field.paramId, this.value, range.min, range.max);
                 
                 if (!result.valid) {
                     this.classList.add('error');
@@ -1671,8 +1698,23 @@ function setupModelParamValidation() {
             
             input.addEventListener('input', function() {
                 if (this.classList.contains('error')) {
-                    const range = MODEL_PARAM_RANGES[param];
-                    const result = validateSetting(param, this.value, range.min, range.max);
+                    const range = MODEL_PARAM_RANGES[field.paramId];
+                    const result = validateNumericSetting(field.paramId, this.value, range.min, range.max);
+                    if (result.valid) {
+                        this.classList.remove('error');
+                        clearModelSettingsError();
+                    }
+                }
+            });
+        }
+    });
+
+    MODEL_CONFIG_FIELDS.forEach(field => {
+        const input = document.getElementById(field.inputId);
+        if (input) {
+            input.addEventListener('input', function() {
+                if (this.classList.contains('error')) {
+                    const result = validateModelConfigField(field, this.value);
                     if (result.valid) {
                         this.classList.remove('error');
                         clearModelSettingsError();
@@ -1684,40 +1726,41 @@ function setupModelParamValidation() {
 }
 
 async function saveModelSettings() {
-    const paramIds = ['temperature', 'max_tokens', 'top_p', 'frequency_penalty', 'presence_penalty', 'chunk_size', 'chunk_overlap', 'retrieval_k'];
-    
-    const paramMapping = {
-        'temperature': 'llm_temperature',
-        'max_tokens': 'llm_max_tokens',
-        'top_p': 'llm_top_p',
-        'frequency_penalty': 'llm_frequency_penalty',
-        'presence_penalty': 'llm_presence_penalty',
-        'chunk_size': 'embedding_chunk_size',
-        'chunk_overlap': 'embedding_chunk_overlap',
-        'retrieval_k': 'embedding_retrieval_k'
-    };
-    
     const settings = {};
-    
-    for (const param of paramIds) {
-        const input = document.getElementById(`param-${param}`);
+
+    for (const field of MODEL_CONFIG_FIELDS) {
+        const input = document.getElementById(field.inputId);
         if (!input) continue;
-        
-        const range = MODEL_PARAM_RANGES[param];
-        const result = validateSetting(param, input.value, range.min, range.max);
-        
+
+        const result = validateModelConfigField(field, input.value);
+
         if (!result.valid) {
             input.classList.add('error');
-            showModelSettingsError(`${param}: ${result.message}`);
+            showModelSettingsError(result.message);
             return;
         }
-        
-        const backendKey = paramMapping[param];
-        settings[backendKey] = result.value;
+
+        settings[field.key] = result.value;
+    }
+
+    for (const field of MODEL_PARAM_FIELDS) {
+        const input = document.getElementById(`param-${field.paramId}`);
+        if (!input) continue;
+
+        const range = MODEL_PARAM_RANGES[field.paramId];
+        const result = validateNumericSetting(field.paramId, input.value, range.min, range.max);
+
+        if (!result.valid) {
+            input.classList.add('error');
+            showModelSettingsError(`${field.paramId}: ${result.message}`);
+            return;
+        }
+
+        settings[field.key] = result.value;
     }
     
     try {
-        let successCount = 0;
+        let lastMessage = '';
         for (const [key, value] of Object.entries(settings)) {
             const response = await fetch('/api/settings', {
                 method: 'POST',
@@ -1728,20 +1771,21 @@ async function saveModelSettings() {
             });
             
             const data = await response.json();
-            if (data.success) {
-                successCount++;
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || data.message || `${key} 保存失败`);
             }
+            lastMessage = data.message || lastMessage;
         }
-        
-        if (successCount === Object.keys(settings).length) {
-            currentModelSettings = settings;
-            showModelSettingsSuccess('设置已保存');
-        } else {
-            showModelSettingsError('部分设置保存失败');
-        }
+
+        currentModelSettings = {
+            ...currentModelSettings,
+            ...settings
+        };
+        await loadModelSettings();
+        showModelSettingsSuccess(lastMessage || '设置已保存');
     } catch (error) {
         console.error('保存模型设置失败:', error);
-        showModelSettingsError('保存失败，请重试');
+        showModelSettingsError(error.message || '保存失败，请重试');
     }
 }
 
@@ -1749,18 +1793,7 @@ async function resetModelSettings() {
     if (!confirm('确定要恢复默认设置吗？')) {
         return;
     }
-    
-    const paramMapping = {
-        'temperature': 'llm_temperature',
-        'max_tokens': 'llm_max_tokens',
-        'top_p': 'llm_top_p',
-        'frequency_penalty': 'llm_frequency_penalty',
-        'presence_penalty': 'llm_presence_penalty',
-        'chunk_size': 'embedding_chunk_size',
-        'chunk_overlap': 'embedding_chunk_overlap',
-        'retrieval_k': 'embedding_retrieval_k'
-    };
-    
+
     try {
         const response = await fetch('/api/settings/reset', {
             method: 'POST'

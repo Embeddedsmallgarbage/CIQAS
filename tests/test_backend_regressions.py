@@ -10,6 +10,8 @@ from unittest.mock import Mock, patch
 import app as app_module
 import auth
 import build_db
+import embeddings as embeddings_module
+import rag_engine
 from auth import AuthManager
 from database import Database
 
@@ -206,6 +208,140 @@ class BackendRegressionTests(unittest.TestCase):
         self.assertEqual(app_module.Config.validate_setting("embedding_batch_size", 32), (True, None))
         self.assertEqual(app_module.Config.validate_setting("embedding_max_workers", 8), (True, None))
 
+    def test_model_provider_settings_are_initialized_and_validatable(self):
+        self.assertEqual(self.temp_db.get_setting("llm_provider", None), "deepseek")
+        self.assertEqual(
+            self.temp_db.get_setting("llm_base_url", None),
+            app_module.Config.DEEPSEEK_API_BASE,
+        )
+        self.assertEqual(
+            self.temp_db.get_setting("embedding_provider", None),
+            "siliconflow",
+        )
+        self.assertEqual(
+            self.temp_db.get_setting("embedding_base_url", None),
+            app_module.Config.SILICONFLOW_BASE_URL,
+        )
+        self.assertEqual(
+            app_module.Config.validate_setting("llm_provider", "openai_compatible"),
+            (True, None),
+        )
+        self.assertEqual(
+            app_module.Config.validate_setting("embedding_provider", "openai_compatible"),
+            (True, None),
+        )
+
+        is_valid, error_message = app_module.Config.validate_setting("llm_provider", "unknown")
+        self.assertFalse(is_valid)
+        self.assertIn("必须是以下值之一", error_message)
+
+    def test_settings_api_persists_model_provider_config_strings(self):
+        self.login_as_admin()
+
+        with patch.object(app_module, "db", self.temp_db), patch.object(
+            auth, "db", self.temp_db
+        ), patch.object(app_module, "get_qa_system", return_value=None), patch.object(
+            app_module, "get_kb_builder", return_value=None
+        ):
+            response_1 = self.client.post(
+                "/api/settings",
+                json={"key": "llm_provider", "value": "openai_compatible"},
+            )
+            response_2 = self.client.post(
+                "/api/settings",
+                json={"key": "llm_base_url", "value": "http://localhost:1234/v1"},
+            )
+            response_3 = self.client.post(
+                "/api/settings",
+                json={"key": "embedding_model", "value": "text-embedding-local"},
+            )
+            settings_response = self.client.get("/api/settings")
+
+        self.assertEqual(response_1.status_code, 200)
+        self.assertEqual(response_2.status_code, 200)
+        self.assertEqual(response_3.status_code, 200)
+
+        payload = settings_response.get_json()
+        settings_map = {
+            item["setting_key"]: item["value"]
+            for item in payload["settings"]
+        }
+        self.assertEqual(settings_map["llm_provider"], "openai_compatible")
+        self.assertEqual(settings_map["llm_base_url"], "http://localhost:1234/v1")
+        self.assertEqual(settings_map["embedding_model"], "text-embedding-local")
+
+
+class RuntimeProviderConfigTests(unittest.TestCase):
+    def test_qa_system_uses_openai_compatible_llm_provider(self):
+        llm_provider_settings = {
+            "provider": "openai_compatible",
+            "base_url": "http://localhost:1234/v1",
+            "api_key": "",
+            "model": "qwen-local",
+        }
+        llm_sampling_settings = {
+            "temperature": 0.3,
+            "max_tokens": 2048,
+            "top_p": 0.8,
+            "frequency_penalty": 0.1,
+            "presence_penalty": 0.2,
+        }
+
+        with patch.object(rag_engine, "create_embeddings_client", return_value=Mock()), patch.object(
+            rag_engine, "ChatOpenAI"
+        ) as chat_openai, patch.object(
+            rag_engine, "ChatDeepSeek"
+        ) as chat_deepseek, patch.object(
+            rag_engine.Config, "get_llm_provider_settings", return_value=llm_provider_settings
+        ), patch.object(
+            rag_engine.Config, "get_llm_settings", return_value=llm_sampling_settings
+        ), patch.object(
+            rag_engine.QASystem, "_init_prompt"
+        ), patch.object(
+            rag_engine.QASystem, "_load_vector_store"
+        ):
+            rag_engine.QASystem(db_path="dummy-vector-db")
+
+        chat_openai.assert_called_once()
+        chat_deepseek.assert_not_called()
+        kwargs = chat_openai.call_args.kwargs
+        self.assertEqual(kwargs["model"], "qwen-local")
+        self.assertEqual(kwargs["api_key"], "sk-local")
+        self.assertEqual(kwargs["base_url"], "http://localhost:1234/v1")
+        self.assertEqual(kwargs["temperature"], 0.3)
+
+    def test_create_embeddings_client_uses_openai_compatible_provider(self):
+        provider_settings = {
+            "provider": "openai_compatible",
+            "base_url": "http://localhost:1234/v1",
+            "api_key": "",
+            "model": "text-embedding-local",
+        }
+
+        with patch.object(
+            embeddings_module.Config,
+            "get_embedding_provider_settings",
+            return_value=provider_settings,
+        ), patch.object(
+            embeddings_module.Config,
+            "get_setting",
+            side_effect=lambda key, default=None: {
+                "embedding_batch_size": 32,
+                "embedding_max_workers": 6,
+            }.get(key, default),
+        ), patch.object(
+            embeddings_module, "OpenAIEmbeddings"
+        ) as openai_embeddings:
+            embeddings_module.create_embeddings_client()
+
+        openai_embeddings.assert_called_once_with(
+            model="text-embedding-local",
+            api_key="sk-local",
+            base_url="http://localhost:1234/v1",
+            chunk_size=32,
+            tiktoken_enabled=False,
+        )
+
 
 class FakeEmbeddings:
     pass
@@ -257,7 +393,7 @@ class KnowledgeBaseRegressionTests(unittest.TestCase):
 
             FakeVectorStore.STORES.clear()
 
-            with patch.object(build_db, "SiliconFlowEmbeddings", return_value=FakeEmbeddings()), patch.object(
+            with patch.object(build_db, "create_embeddings_client", return_value=FakeEmbeddings()), patch.object(
                 build_db, "FAISS", FakeVectorStore
             ):
                 builder = build_db.KnowledgeBaseBuilder(str(db_path))

@@ -95,6 +95,19 @@ def get_service_error_message() -> str:
     return qa_system_error or kb_builder_error or '系统服务暂时不可用，请检查配置'
 
 
+def clear_service_cache(target: str = 'all'):
+    """清除延迟初始化服务缓存，允许在配置变更后重新初始化。"""
+    global qa_system, qa_system_error, kb_builder, kb_builder_error
+
+    if target in ('all', 'qa'):
+        qa_system = None
+        qa_system_error = None
+
+    if target in ('all', 'kb'):
+        kb_builder = None
+        kb_builder_error = None
+
+
 def build_stream_error_response(message: str, status_code: int = 503) -> Response:
     """返回 SSE 格式的错误响应，兼容前端流式解析。"""
     data = json.dumps({
@@ -775,7 +788,7 @@ def clear_kb():
 @admin_required
 def get_settings():
     """
-    获取所有模型参数（仅管理员）
+    获取所有模型配置与参数（仅管理员）
 
     支持按类别筛选: GET /api/settings?category=llm
     类别: llm - 大语言模型参数, embedding - 嵌入模型参数
@@ -801,18 +814,26 @@ def get_settings():
 @admin_required
 def update_setting():
     """
-    更新模型参数（仅管理员）
+    更新模型配置或参数（仅管理员）
 
     请求体:
     - key: 参数键名（必填）
     - value: 参数值（必填）
 
     支持的参数:
+    - llm_provider: LLM 供应商
+    - llm_base_url: LLM 接口基地址
+    - llm_api_key: LLM 接口 API Key
+    - llm_model: LLM 模型名
     - llm_temperature: 温度参数 (0.0-2.0)
     - llm_max_tokens: 最大token数 (100-8192)
     - llm_top_p: 核采样参数 (0.0-1.0)
     - llm_frequency_penalty: 频率惩罚 (-2.0-2.0)
     - llm_presence_penalty: 存在惩罚 (-2.0-2.0)
+    - embedding_provider: Embedding 供应商
+    - embedding_base_url: Embedding 接口基地址
+    - embedding_api_key: Embedding 接口 API Key
+    - embedding_model: Embedding 模型名
     - embedding_chunk_size: 分块大小 (100-2000)
     - embedding_chunk_overlap: 重叠大小 (0-500)
     - embedding_retrieval_k: 检索数量 (1-10)
@@ -843,29 +864,58 @@ def update_setting():
 
         if success:
             logger.info(f"参数更新成功: {key} = {value}")
+            message = f'参数 {key} 已更新为 {value}'
+            embedding_config_keys = {
+                'embedding_provider',
+                'embedding_base_url',
+                'embedding_api_key',
+                'embedding_model',
+            }
+            builder_reload_keys = {
+                'embedding_chunk_size',
+                'embedding_chunk_overlap',
+                'embedding_batch_size',
+                'embedding_max_workers',
+            }
+            vector_store_exists = os.path.exists(Config.VECTOR_DB_PATH) and bool(os.listdir(Config.VECTOR_DB_PATH))
 
             # 重新加载相关组件的设置
             try:
-                qa = get_qa_system()
-                if qa:
-                    qa.reload_settings()
-                    logger.info("问答系统设置已重新加载")
+                if key.startswith('llm_'):
+                    clear_service_cache('qa')
+                    qa = get_qa_system()
+                    if qa:
+                        logger.info("问答系统设置已重新加载")
+                elif key in embedding_config_keys and not vector_store_exists:
+                    clear_service_cache('qa')
+                    get_qa_system()
             except Exception as e:
                 logger.warning(f"重新加载问答系统设置失败: {e}")
 
             # 重新加载知识库构建器设置（如果修改了 embedding 相关参数）
-            if key.startswith('embedding_'):
+            if key in embedding_config_keys:
+                if vector_store_exists:
+                    message = 'Embedding 配置已保存。当前知识库仍基于旧嵌入模型构建，请先清空并重建知识库后再继续上传或问答。'
+                else:
+                    try:
+                        clear_service_cache('kb')
+                        kb = get_kb_builder()
+                        if kb:
+                            logger.info("知识库构建器设置已重新加载")
+                    except Exception as e:
+                        logger.warning(f"重新加载知识库构建器设置失败: {e}")
+            elif key in builder_reload_keys:
                 try:
+                    clear_service_cache('kb')
                     kb = get_kb_builder()
                     if kb:
-                        kb.reload_settings()
                         logger.info("知识库构建器设置已重新加载")
                 except Exception as e:
                     logger.warning(f"重新加载知识库构建器设置失败: {e}")
 
             return jsonify({
                 'success': True,
-                'message': f'参数 {key} 已更新为 {value}'
+                'message': message
             })
         else:
             return jsonify({'error': '参数更新失败'}), 500
@@ -891,12 +941,12 @@ def reset_settings():
 
         if success:
             logger.info("所有参数已恢复为默认值")
+            clear_service_cache()
 
             # 重新加载相关组件的设置
             try:
                 qa = get_qa_system()
                 if qa:
-                    qa.reload_settings()
                     logger.info("问答系统设置已重新加载")
             except Exception as e:
                 logger.warning(f"重新加载问答系统设置失败: {e}")
@@ -905,7 +955,6 @@ def reset_settings():
             try:
                 kb = get_kb_builder()
                 if kb:
-                    kb.reload_settings()
                     logger.info("知识库构建器设置已重新加载")
             except Exception as e:
                 logger.warning(f"重新加载知识库构建器设置失败: {e}")

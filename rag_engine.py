@@ -12,9 +12,10 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_deepseek import ChatDeepSeek
+from langchain_openai import ChatOpenAI
 
 from config import Config
-from embeddings import SiliconFlowEmbeddings
+from embeddings import create_embeddings_client
 from logger import logger
 
 
@@ -32,7 +33,7 @@ class QASystem:
         self.llm = None
         self.prompt_template = None
 
-        self.embeddings = SiliconFlowEmbeddings()
+        self.embeddings = create_embeddings_client()
 
         self._init_llm()
         self._init_prompt()
@@ -42,25 +43,53 @@ class QASystem:
 
     def _init_llm(self):
         """初始化 LLM（使用动态参数）"""
-        if not Config.DEEPSEEK_API_KEY:
-            logger.warning("DEEPSEEK_API_KEY 未设置，LLM 功能将不可用")
-            return
-
         # 获取动态参数
         llm_settings = Config.get_llm_settings()
+        provider_settings = Config.get_llm_provider_settings()
+        provider = provider_settings['provider']
+        self.llm = None
 
-        self.llm = ChatDeepSeek(
-            model=Config.DEEPSEEK_MODEL,
-            api_key=Config.DEEPSEEK_API_KEY,
-            temperature=llm_settings['temperature'],
-            max_tokens=llm_settings['max_tokens'],
-            top_p=llm_settings['top_p'],
-            frequency_penalty=llm_settings['frequency_penalty'],
-            presence_penalty=llm_settings['presence_penalty'],
-            streaming=True
-        )
+        if provider == 'deepseek':
+            if not provider_settings['api_key']:
+                logger.warning("DeepSeek API Key 未设置，LLM 功能将不可用")
+                return
+
+            self.llm = ChatDeepSeek(
+                model=provider_settings['model'],
+                api_key=provider_settings['api_key'],
+                api_base=provider_settings['base_url'],
+                temperature=llm_settings['temperature'],
+                max_tokens=llm_settings['max_tokens'],
+                top_p=llm_settings['top_p'],
+                frequency_penalty=llm_settings['frequency_penalty'],
+                presence_penalty=llm_settings['presence_penalty'],
+                streaming=True
+            )
+        elif provider == 'openai_compatible':
+            if not provider_settings['base_url']:
+                logger.warning("OpenAI 兼容 LLM 基地址未设置，LLM 功能将不可用")
+                return
+            if not provider_settings['model']:
+                logger.warning("OpenAI 兼容 LLM 模型名未设置，LLM 功能将不可用")
+                return
+
+            self.llm = ChatOpenAI(
+                model=provider_settings['model'],
+                api_key=provider_settings['api_key'] or 'sk-local',
+                base_url=provider_settings['base_url'],
+                temperature=llm_settings['temperature'],
+                max_tokens=llm_settings['max_tokens'],
+                top_p=llm_settings['top_p'],
+                frequency_penalty=llm_settings['frequency_penalty'],
+                presence_penalty=llm_settings['presence_penalty'],
+                streaming=True
+            )
+        else:
+            logger.warning(f"不支持的 LLM 供应商: {provider}")
+            return
+
         logger.info(
-            f"初始化 LLM: model={Config.DEEPSEEK_MODEL}, "
+            f"初始化 LLM: provider={provider}, model={provider_settings['model']}, "
             f"temperature={llm_settings['temperature']}, "
             f"max_tokens={llm_settings['max_tokens']}, "
             f"top_p={llm_settings['top_p']}"

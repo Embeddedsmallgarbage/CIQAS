@@ -448,11 +448,80 @@
                             <div class="admin-section">
                                 <h3>
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-                                        <line x1="12" y1="22.08" x2="12" y2="12"/>
+                                        <path d="M12 20h9"/>
+                                        <path d="M12 4h9"/>
+                                        <path d="M4 9h16"/>
+                                        <path d="M4 15h16"/>
+                                        <circle cx="8" cy="4" r="2"/>
+                                        <circle cx="16" cy="20" r="2"/>
                                     </svg>
-                                    大语言模型参数
+                                    模型配置
+                                </h3>
+                                <p class="model-config-note">修改 Embedding 供应商、基地址或模型名后，需要清空并重建知识库，新的配置才会真正用于上传和问答。</p>
+                                <div class="model-config-grid">
+                                    <div class="model-config-card">
+                                        <h4>LLM 配置</h4>
+                                        <div class="model-config-form">
+                                            <div class="form-group">
+                                                <label for="llm-provider">供应商</label>
+                                                <select id="llm-provider" class="param-input">
+                                                    <option value="deepseek">DeepSeek</option>
+                                                    <option value="openai_compatible">OpenAI 兼容接口</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="llm-base_url">基地址</label>
+                                                <input type="text" id="llm-base_url" class="param-input" placeholder="https://api.deepseek.com">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="llm-api_key">API Key</label>
+                                                <input type="password" id="llm-api_key" class="param-input" placeholder="留空则沿用环境变量">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="llm-model">模型名</label>
+                                                <input type="text" id="llm-model" class="param-input" placeholder="deepseek-chat">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="model-config-card">
+                                        <h4>Embedding 配置</h4>
+                                        <div class="model-config-form">
+                                            <div class="form-group">
+                                                <label for="embedding-provider">供应商</label>
+                                                <select id="embedding-provider" class="param-input">
+                                                    <option value="siliconflow">SiliconFlow</option>
+                                                    <option value="openai_compatible">OpenAI 兼容接口</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="embedding-base_url">基地址</label>
+                                                <input type="text" id="embedding-base_url" class="param-input" placeholder="https://api.siliconflow.cn/v1">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="embedding-api_key">API Key</label>
+                                                <input type="password" id="embedding-api_key" class="param-input" placeholder="留空则沿用环境变量">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="embedding-model">模型名</label>
+                                                <input type="text" id="embedding-model" class="param-input" placeholder="BAAI/bge-m3">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="admin-section">
+                                <h3>
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path d="M12 20h9"/>
+                                        <path d="M12 4h9"/>
+                                        <path d="M4 9h16"/>
+                                        <path d="M4 15h16"/>
+                                        <circle cx="8" cy="4" r="2"/>
+                                        <circle cx="16" cy="20" r="2"/>
+                                    </svg>
+                                    LLM 参数设置
                                 </h3>
                                 <div class="model-params-form">
                                     <div class="form-group">
@@ -505,7 +574,7 @@
                                         <line x1="3" y1="9" x2="21" y2="9"/>
                                         <line x1="9" y1="21" x2="9" y2="9"/>
                                     </svg>
-                                    嵌入模型参数
+                                    Embedding 参数设置
                                 </h3>
                                 <div class="model-params-form">
                                     <div class="form-group">

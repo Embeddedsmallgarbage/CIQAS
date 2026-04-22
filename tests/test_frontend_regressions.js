@@ -58,6 +58,11 @@ class FakeElement {
     return child;
   }
 
+  insertBefore(child) {
+    this.children.unshift(child);
+    return child;
+  }
+
   querySelector() {
     return null;
   }
@@ -70,7 +75,11 @@ class FakeElement {
 }
 
 
-function loadMainJsContext({ includeUploadArea = false, includeDocumentList = false } = {}) {
+function loadMainJsContext({
+  includeUploadArea = false,
+  includeDocumentList = false,
+  includeModelSettings = false,
+} = {}) {
   const elementMap = new Map([
     ["chatMessages", new FakeElement()],
     ["messageInput", new FakeElement()],
@@ -83,6 +92,7 @@ function loadMainJsContext({ includeUploadArea = false, includeDocumentList = fa
     ["conversationCount", new FakeElement()],
     ["sendBtn", new FakeElement()],
     ["sidebar", new FakeElement()],
+    ["panel-model", new FakeElement()],
   ]);
 
   if (includeUploadArea) {
@@ -93,6 +103,29 @@ function loadMainJsContext({ includeUploadArea = false, includeDocumentList = fa
   if (includeDocumentList) {
     elementMap.set("documentList", new FakeElement());
     elementMap.set("docCount", new FakeElement());
+  }
+
+  if (includeModelSettings) {
+    [
+      "llm-provider",
+      "llm-base_url",
+      "llm-api_key",
+      "llm-model",
+      "embedding-provider",
+      "embedding-base_url",
+      "embedding-api_key",
+      "embedding-model",
+      "param-temperature",
+      "param-max_tokens",
+      "param-top_p",
+      "param-frequency_penalty",
+      "param-presence_penalty",
+      "param-chunk_size",
+      "param-chunk_overlap",
+      "param-retrieval_k",
+    ].forEach((id) => {
+      elementMap.set(id, new FakeElement());
+    });
   }
 
   const documentListeners = new Map();
@@ -215,4 +248,80 @@ test("renderMessages forwards stored sources when reloading history", () => {
       sources: [{ source: "guide.pdf", content: "snippet" }],
     },
   ]);
+});
+
+
+test("renderModelSettings populates provider config inputs", () => {
+  const context = loadMainJsContext({ includeModelSettings: true });
+
+  context.renderModelSettings([
+    { setting_key: "llm_provider", value: "openai_compatible" },
+    { setting_key: "llm_base_url", value: "http://localhost:1234/v1" },
+    { setting_key: "llm_api_key", value: "sk-local" },
+    { setting_key: "llm_model", value: "qwen-local" },
+    { setting_key: "embedding_provider", value: "openai_compatible" },
+    { setting_key: "embedding_base_url", value: "http://localhost:1234/v1" },
+    { setting_key: "embedding_api_key", value: "" },
+    { setting_key: "embedding_model", value: "text-embedding-local" },
+    { setting_key: "llm_temperature", value: 0.3 },
+    { setting_key: "embedding_retrieval_k", value: 5 },
+  ]);
+
+  assert.equal(context.document.getElementById("llm-provider").value, "openai_compatible");
+  assert.equal(context.document.getElementById("llm-base_url").value, "http://localhost:1234/v1");
+  assert.equal(context.document.getElementById("llm-model").value, "qwen-local");
+  assert.equal(context.document.getElementById("embedding-provider").value, "openai_compatible");
+  assert.equal(context.document.getElementById("embedding-model").value, "text-embedding-local");
+  assert.equal(context.document.getElementById("param-temperature").value, 0.3);
+  assert.equal(context.document.getElementById("param-retrieval_k").value, 5);
+});
+
+
+test("saveModelSettings submits provider config together with numeric params", async () => {
+  const context = loadMainJsContext({ includeModelSettings: true });
+  const requests = [];
+
+  context.fetch = async (_url, options = {}) => {
+    if (options.body) {
+      requests.push(JSON.parse(options.body));
+      return {
+        ok: true,
+        json: async () => ({ success: true }),
+      };
+    }
+
+    return {
+      ok: true,
+      json: async () => ({ success: true, settings: [] }),
+    };
+  };
+
+  context.document.getElementById("llm-provider").value = "openai_compatible";
+  context.document.getElementById("llm-base_url").value = "http://localhost:1234/v1";
+  context.document.getElementById("llm-api_key").value = "";
+  context.document.getElementById("llm-model").value = "qwen-local";
+  context.document.getElementById("embedding-provider").value = "openai_compatible";
+  context.document.getElementById("embedding-base_url").value = "http://localhost:1234/v1";
+  context.document.getElementById("embedding-api_key").value = "";
+  context.document.getElementById("embedding-model").value = "text-embedding-local";
+  context.document.getElementById("param-temperature").value = "0.4";
+  context.document.getElementById("param-max_tokens").value = "1024";
+  context.document.getElementById("param-top_p").value = "0.9";
+  context.document.getElementById("param-frequency_penalty").value = "0";
+  context.document.getElementById("param-presence_penalty").value = "0";
+  context.document.getElementById("param-chunk_size").value = "500";
+  context.document.getElementById("param-chunk_overlap").value = "50";
+  context.document.getElementById("param-retrieval_k").value = "3";
+
+  await context.saveModelSettings();
+
+  const submittedKeys = requests.map((request) => request.key);
+  assert.ok(submittedKeys.includes("llm_provider"));
+  assert.ok(submittedKeys.includes("llm_base_url"));
+  assert.ok(submittedKeys.includes("llm_model"));
+  assert.ok(submittedKeys.includes("embedding_provider"));
+  assert.ok(submittedKeys.includes("embedding_base_url"));
+  assert.ok(submittedKeys.includes("embedding_model"));
+  assert.ok(submittedKeys.includes("llm_temperature"));
+  assert.ok(submittedKeys.includes("embedding_retrieval_k"));
 });

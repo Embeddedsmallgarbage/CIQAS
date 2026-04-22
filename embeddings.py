@@ -11,6 +11,7 @@ import requests
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.embeddings import Embeddings
+from langchain_openai import OpenAIEmbeddings
 
 from config import Config
 from logger import logger
@@ -36,14 +37,16 @@ class SiliconFlowEmbeddings(Embeddings):
         @param batch_size 批量处理大小（默认从配置读取）
         @param max_workers 并发工作线程数（默认从配置读取）
         """
-        self.api_key = api_key or Config.SILICONFLOW_API_KEY
-        self.base_url = base_url or Config.SILICONFLOW_BASE_URL
-        self.model = model or Config.SILICONFLOW_EMBEDDING_MODEL
+        provider_settings = Config.get_embedding_provider_settings()
+
+        self.api_key = api_key if api_key is not None else provider_settings['api_key']
+        self.base_url = base_url if base_url is not None else provider_settings['base_url']
+        self.model = model if model is not None else provider_settings['model']
         self.api_url = f"{self.base_url}/embeddings"
 
         # 支持动态参数配置
-        self.batch_size = batch_size or Config.get_setting('embedding_batch_size', 20)
-        self.max_workers = max_workers or Config.get_setting('embedding_max_workers', 4)
+        self.batch_size = batch_size if batch_size is not None else Config.get_setting('embedding_batch_size', 20)
+        self.max_workers = max_workers if max_workers is not None else Config.get_setting('embedding_max_workers', 4)
 
         if not self.api_key:
             raise ValueError("SILICONFLOW_API_KEY 未配置，请在 .env 文件中设置")
@@ -198,4 +201,46 @@ def get_embeddings() -> SiliconFlowEmbeddings:
 
     @return Embedding 实例
     """
-    return SiliconFlowEmbeddings()
+    return create_embeddings_client()
+
+
+def create_embeddings_client(
+    batch_size: int = None,
+    max_workers: int = None
+):
+    """
+    根据当前配置创建 Embedding 客户端
+
+    @param batch_size 批量处理大小
+    @param max_workers 并发工作线程数
+    @return Embedding 客户端实例
+    """
+    provider_settings = Config.get_embedding_provider_settings()
+    provider = provider_settings['provider']
+    effective_batch_size = batch_size if batch_size is not None else Config.get_setting('embedding_batch_size', 20)
+    effective_max_workers = max_workers if max_workers is not None else Config.get_setting('embedding_max_workers', 4)
+
+    if provider == 'siliconflow':
+        return SiliconFlowEmbeddings(
+            api_key=provider_settings['api_key'],
+            base_url=provider_settings['base_url'],
+            model=provider_settings['model'],
+            batch_size=effective_batch_size,
+            max_workers=effective_max_workers,
+        )
+
+    if provider == 'openai_compatible':
+        if not provider_settings['base_url']:
+            raise ValueError("OpenAI 兼容 Embedding 基地址未配置")
+        if not provider_settings['model']:
+            raise ValueError("OpenAI 兼容 Embedding 模型名未配置")
+
+        return OpenAIEmbeddings(
+            model=provider_settings['model'],
+            api_key=provider_settings['api_key'] or 'sk-local',
+            base_url=provider_settings['base_url'],
+            chunk_size=effective_batch_size,
+            tiktoken_enabled=False,
+        )
+
+    raise ValueError(f"不支持的 Embedding 供应商: {provider}")

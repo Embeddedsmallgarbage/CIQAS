@@ -2221,6 +2221,56 @@ textarea:focus-visible {
 /* ============================================
    模型参数设置
    ============================================ */
+.model-config-note {
+    margin: -6px 0 18px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--color-stone);
+}
+
+.model-config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
+}
+
+.model-config-card {
+    padding: 18px;
+    background: var(--color-cream);
+    border: 1px solid var(--color-sand);
+    border-radius: var(--radius-lg);
+}
+
+.model-config-card h4 {
+    margin: 0 0 16px;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-charcoal);
+}
+
+.model-config-form {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+}
+
+.model-config-form .form-group {
+    margin-bottom: 0;
+}
+
+.model-config-form .form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-charcoal);
+    margin-bottom: 8px;
+}
+
+.model-config-form .param-input {
+    width: 100%;
+}
+
 .model-params-form {
     display: flex;
     flex-direction: column;

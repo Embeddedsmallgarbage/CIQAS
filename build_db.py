@@ -16,7 +16,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 
 from config import Config
-from embeddings import SiliconFlowEmbeddings
+from embeddings import create_embeddings_client
 from logger import logger
 
 
@@ -231,7 +231,7 @@ class KnowledgeBaseBuilder:
         self.db_path = db_path or Config.VECTOR_DB_PATH
         self.metadata_path = os.path.join(os.path.dirname(self.db_path), 'uploads', 'document_metadata.json')
 
-        self.embeddings = SiliconFlowEmbeddings()
+        self.embeddings = create_embeddings_client()
 
         # 动态获取 chunk 参数
         self._init_text_splitter()
@@ -265,6 +265,7 @@ class KnowledgeBaseBuilder:
         logger.info("重新加载知识库构建器设置...")
 
         try:
+            self.embeddings = create_embeddings_client()
             # 重新初始化文本分割器
             self._init_text_splitter()
             logger.info("知识库构建器设置重新加载完成")
